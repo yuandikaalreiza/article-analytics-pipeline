@@ -706,6 +706,36 @@ Review Step 4 and the retained rows, then perform Step 5: add maintained unit
 and PostgreSQL integration tests for configuration, arguments, UTC timestamps,
 commit/rollback, and safe errors. No additional pipeline services are needed.
 
+## 2026-10-24 - Google-style Python docstrings
+
+### Purpose
+
+Set a consistent format for Python docstrings and begin applying it to the
+active CLI source.
+
+### Changes
+
+- Added repository guidance to use Google-style Python docstrings, with
+  `Args`, `Returns`, and `Raises` sections when they apply.
+- Expanded the callable docstrings in `scripts/generate_articles.py` to explain
+  inputs, results, errors, and transaction ownership.
+- Preserved the current Milestone 2 Step 4 review checkpoint. Step 5 remains the
+  next implementation step after that review.
+
+### Verification evidence
+
+- PowerShell content checks found `Args`, `Returns`, and `Raises` sections in the
+  updated source; all documented `AGENTS.md` link targets exist.
+- `git diff --check` passed.
+- Python AST validation could not run: `uv` was unable to persist its interpreter
+  cache in the sandbox, and the system `python.exe` Windows app shim could not
+  start. No runtime or database checks were run.
+
+### Next action and checkpoint
+
+Review the docstring format, then continue with the existing Step 4 review.
+After approval, proceed to Milestone 2 Step 5.
+
 ## How to maintain this log
 
 For each later step, append a dated entry with its purpose, changed files,

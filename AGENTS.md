@@ -29,6 +29,8 @@ project. Favor small changes the learner can inspect and understand.
 
 ## Implementation and Git
 
+- Write Python docstrings in Google style, using `Args`, `Returns`, and `Raises`
+  sections when they apply.
 - Use `uv` for Python dependency management and execution. Keep dependencies in
   `pyproject.toml`, commit `uv.lock`, and run Python commands with `uv run --locked`.
   Use `uv sync --locked --inexact` when syncing the existing environment to

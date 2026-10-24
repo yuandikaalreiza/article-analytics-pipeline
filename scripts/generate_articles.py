@@ -17,7 +17,17 @@ class SettingsError(ValueError):
 
 
 def get_required_env(variable: str) -> str:
-    """Read a nonblank environment value, preserving password whitespace."""
+    """Read a nonblank environment value without trimming its value.
+
+    Args:
+        variable: Name of the environment variable to read.
+
+    Returns:
+        The environment variable value, preserving surrounding whitespace.
+
+    Raises:
+        SettingsError: If the variable is missing or contains only whitespace.
+    """
     value = os.environ.get(variable)
     if value is None or not value.strip():
         raise SettingsError(f"Set {variable} in .env or the environment.")
@@ -25,7 +35,16 @@ def get_required_env(variable: str) -> str:
 
 
 def load_settings() -> dict[str, str | int]:
-    """Load repository settings while preserving process environment overrides."""
+    """Load database settings from the repository environment configuration.
+
+    Values already set in the process environment take precedence over `.env`.
+
+    Returns:
+        Connection settings accepted by `psycopg.connect`.
+
+    Raises:
+        SettingsError: If `.env` cannot be read or a setting is invalid.
+    """
     repository_root = Path(__file__).resolve().parents[1]
     try:
         load_dotenv(repository_root / ".env", override=False)
@@ -62,7 +81,19 @@ def load_settings() -> dict[str, str | int]:
 
 
 def check_database(settings: dict[str, str | int]) -> dict[str, object]:
-    """Inspect connection facts in a read-only transaction, then close it."""
+    """Inspect database connection facts without changing data.
+
+    Args:
+        settings: Connection settings accepted by `psycopg.connect`.
+
+    Returns:
+        Database name, user, server version, timezone, transaction mode, and
+        whether `public.articles` exists.
+
+    Raises:
+        psycopg.Error: If connecting or querying the database fails.
+        RuntimeError: If the query returns no row.
+    """
     with psycopg.connect(**settings, connect_timeout=5, row_factory=dict_row) as connection:
         connection.read_only = True
         result = connection.execute(
@@ -81,7 +112,17 @@ def check_database(settings: dict[str, str | int]) -> dict[str, object]:
 
 
 def positive_int(value: str) -> int:
-    """Validate positive CLI integers before opening a database connection."""
+    """Parse a positive integer for use as a command-line argument.
+
+    Args:
+        value: Text supplied for an integer command-line option.
+
+    Returns:
+        The parsed positive integer.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is not a positive integer.
+    """
     try:
         number = int(value)
     except ValueError:
@@ -92,7 +133,15 @@ def positive_int(value: str) -> int:
 
 
 def make_article(number: int, author_id: int) -> dict[str, object]:
-    """Create one demonstration article with consistent UTC timestamps."""
+    """Create one demonstration article with consistent UTC timestamps.
+
+    Args:
+        number: Number used in the generated title and content.
+        author_id: ID of the article's author.
+
+    Returns:
+        Article values ready for insertion into `public.articles`.
+    """
     now = datetime.now(timezone.utc)
     return {
         "title": f"[python demo] Article {number}",
@@ -109,7 +158,21 @@ def insert_articles(
     connection: psycopg.Connection,
     articles: Iterable[dict[str, object]],
 ) -> list[int]:
-    """Insert articles in the caller's transaction and collect generated IDs."""
+    """Insert articles and return their generated IDs.
+
+    The caller owns the transaction and decides whether it commits or rolls back.
+
+    Args:
+        connection: Open PostgreSQL connection for the active transaction.
+        articles: Article values to insert.
+
+    Returns:
+        IDs returned by PostgreSQL, in insertion order.
+
+    Raises:
+        psycopg.Error: If PostgreSQL rejects an insert or execution fails.
+        RuntimeError: If an insertion returns no ID.
+    """
     inserted_ids = []
     with connection.cursor(row_factory=dict_row) as cursor:
         for article in articles:
@@ -134,6 +197,16 @@ def insert_articles(
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the article database command-line interface.
+
+    Args:
+        argv: Optional command-line arguments; defaults to process arguments.
+
+    Returns:
+        Exit status: `0` for success and `1` for handled configuration or
+        database errors. Argument parsing may exit with status `2` on invalid
+        command-line input.
+    """
     parser = argparse.ArgumentParser(description="Work with the local article source database.")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("check", help="Check the database connection without changing data.")
