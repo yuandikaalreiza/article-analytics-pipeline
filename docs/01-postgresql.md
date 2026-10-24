@@ -2,9 +2,10 @@
 
 ## Current checkpoint
 
-**Step 4: articles table created and inspected; review pending.** PostgreSQL has
-an empty `public.articles` table with the agreed columns and constraints. Step 5
-will exercise row operations, invalid inputs, repeatability, and persistence.
+**Step 5: operation and persistence checks passed; milestone review pending.**
+PostgreSQL is healthy with two labeled practice articles: one active and one
+soft-deleted. Review the completed database milestone before designing the
+basic Python insertion CLI.
 
 Follow [the roadmap](ROADMAP.md) for the sequence and [the progress log](PROGRESS.md)
 for verification evidence. This guide records the approved design. Executable
@@ -390,9 +391,9 @@ transaction rollback, rerunning creation, and container recreation remain Step 5
 
 **Purpose:** prove the table behaves correctly and understand transactions.
 
-**Files involved:** SQL examples added to this guide, the schema script for its
-repeatability check, and the progress log. Use a small number of clearly
-identified practice rows.
+**Files involved:** [`sql/002_practice_articles.sql`](../sql/002_practice_articles.sql),
+the schema script for its repeatability check, this guide, and the progress log.
+The practice file is a manual SQL exercise, separate from database initialization.
 
 | Check | Expected result |
 | --- | --- |
@@ -416,6 +417,141 @@ deletion is a separate destructive reset and is not part of these checks.
 
 Use manual integration checks now. Introduce Python unit tests with the generator.
 
+### Run and read the practice operations
+
+Run the practice file once on a dataset without existing `[practice step 5]`
+rows. It checks for that prefix before making changes; repeating the practice
+file deliberately raises an error instead of duplicating or replacing its rows.
+That guard is separate from the repeatable schema-creation script.
+
+```powershell
+$practiceClient = @'
+PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X --no-password \
+  -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -v ON_ERROR_STOP=1 -q -A -t -f -
+'@
+Get-Content -LiteralPath sql/002_practice_articles.sql -Raw | docker compose exec -T postgres sh -c $practiceClient
+if ($LASTEXITCODE -ne 0) { throw 'Article practice SQL failed.' }
+```
+
+The file uses `RETURNING` and `psql`'s `\gset` to capture generated IDs, so its
+updates and deletes target its own inserted rows. It performs these actions:
+
+1. Insert a historical article with explicit creation/publication times in 2016.
+2. Update its content and advance `updated_at`, retaining its ID and creation time.
+3. Insert another article and soft-delete it by setting deletion/update times
+   together. The row remains in the table.
+4. Insert a third article and hard-delete it. The row is removed.
+5. Commit the two retained rows.
+6. Begin another transaction, insert a temporary article, update the active
+   article, and delete the soft-deleted article. Roll back the transaction.
+
+The JSON result groups contain eight boolean checks. Every value must be
+`true`; during execution a PowerShell check also parsed them and failed if any
+value was false or any expected result group was missing. The file itself stops
+on SQL errors and prints the boolean results for inspection.
+
+Observed results: all eight checks were true. The retained IDs were `1` and `2`;
+the hard-deleted row and rolled-back insert were absent. The active article's
+creation and publication times remain in 2016, while its update time reflects
+the current practice operation.
+
+The initial dataset guard prints `1` when no matching practice rows exist and
+raises division-by-zero on a repeated run. Its surrounding transaction rolls
+back if this check fails. Identity sequences can advance on failed or rolled-back
+inserts; gaps are expected and do not require resetting IDs.
+
+### Check deliberately invalid statements separately
+
+Each invalid statement was sent through its own `psql` invocation with
+`ON_ERROR_STOP=1` and `VERBOSITY=verbose`. The verification required client exit
+code `3`, the expected SQLSTATE, and the expected named constraint for check
+violations. These expected errors count as successful checks.
+
+| Case | Invalid input | Expected result |
+| --- | --- | --- |
+| Missing title | Insert content, publication time, and author without a title. | `23502`: not-null violation |
+| Missing publication time | Insert title, content, and author without publication. | `23502`: not-null violation |
+| Zero author | Set `author_id` to `0`. | `23514`: `articles_author_id_positive` |
+| Negative author | Set `author_id` to `-1`. | `23514`: `articles_author_id_positive` |
+| Creation after publication | Creation is one hour after publication; update is two hours after. | `23514`: `articles_created_before_publication` |
+| Update before publication | Creation is two hours before publication; update is one hour before. | `23514`: `articles_updated_after_publication` |
+| Deletion before publication | Creation is two hours before publication; deletion is one hour before. | `23514`: `articles_deleted_within_lifecycle` |
+| Deletion after update | Creation, publication, and update are current transaction time; deletion is one hour later. | `23514`: `articles_deleted_within_lifecycle` |
+| Invalid existing-row update | Change the retained historical article's update time to 2015. | `23514`: `articles_updated_after_publication` |
+
+For example, this reproduces the missing-title case as an isolated invocation:
+
+```powershell
+$invalidClient = @'
+PGPASSWORD="$POSTGRES_PASSWORD" exec psql -X --no-password \
+  -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -f -
+'@
+$invalidSql = @'
+INSERT INTO public.articles (content, published_at, author_id)
+VALUES ('Rejected practice data', CURRENT_TIMESTAMP, 1);
+'@
+$invalidSql | docker compose exec -T postgres sh -c $invalidClient
+if ($LASTEXITCODE -ne 3) { throw 'Expected the invalid statement to fail.' }
+```
+
+Run one invalid statement at a time. A failure inside a transaction aborts that
+transaction until rollback; it should not hide the results of another scenario.
+For the lifecycle cases, supply explicit creation, publication, and update values
+so current-time defaults do not accidentally cause a different constraint to fail.
+
+Observed results: all nine cases were rejected as expected. A fingerprint of all
+committed row values was identical before and after these rejected statements.
+
+### Verify schema reruns with existing data
+
+The following read-only query captures table identity, row count, and a
+fingerprint of every row value. MD5 is used only for this local comparison,
+not for password storage or security.
+
+```powershell
+$snapshotSql = @'
+SELECT json_build_object(
+    'table_oid', 'public.articles'::regclass::oid,
+    'row_count', count(*),
+    'row_fingerprint', md5(COALESCE(jsonb_agg(to_jsonb(a) ORDER BY id), '[]'::jsonb)::text)
+) FROM public.articles AS a;
+'@
+$snapshotSql | docker compose exec -T postgres sh -c $practiceClient
+```
+
+Capture this before and after running `sql/001_articles.sql` twice using the
+Step 4 creation command. Both runs should succeed and skip the existing table.
+
+Observed results: both reruns succeeded, with table OID `16390`, row count `2`,
+and fingerprint `b5934dc43e2939ed872b4247a703c561` unchanged. The identifiers and
+fingerprint are observations of this dataset, not values a fresh setup must match.
+
+### Verify persistence through container recreation
+
+Capture the current container ID and the row snapshot above, then run:
+
+```powershell
+docker compose ps --quiet postgres
+docker compose up --detach --force-recreate --wait --wait-timeout 60 postgres
+docker compose ps --quiet postgres
+$snapshotSql | docker compose exec -T postgres sh -c $practiceClient
+docker compose ps --all
+```
+
+Observed results: the container ID changed from `042fc44a5a74...` to
+`2993f15413dd...`, the new container became healthy, and the table OID, two-row
+count, and fingerprint all matched the pre-recreation snapshot. Mount inspection
+confirmed it reused `article-analytics-pipeline_postgres18_data`.
+
+This is a container replacement, not a database reset. The old PostgreSQL 17
+volume was not touched. The two retained practice articles remain available
+for inspection; future generator counts must account for existing rows.
+
+**Review checkpoint:** all Step 5 operation and persistence checks passed.
+Review this milestone before introducing Python dependencies or generator code.
+
 ## Troubleshooting notes
 
 | Symptom | What to investigate |
@@ -432,10 +568,16 @@ verified during implementation.
 
 ## Milestone acceptance
 
-The milestone is complete only after every Step 5 check passes, the schema is
-verified, persistence is demonstrated, and the documented setup can be repeated
-from a clean checkout. Record failures or skipped checks honestly; container
-health alone does not complete the milestone.
+All Step 5 checks passed, the schema was inspected, and persistence was
+demonstrated. For a new checkout, prepare `.env` as described in Step 2, start the
+service with the Step 3 command, and apply `sql/001_articles.sql` with the Step 4
+command. Existing Docker volumes are independent of the checkout: a new checkout
+on the same machine can reuse this database rather than initialize an empty one.
+The full sequence was exercised on the new PostgreSQL 18 volume in Steps 3
+through 5; a second isolated clone was not separately bootstrapped.
+
+The database milestone is ready for learner review. Record failures or skipped
+checks honestly; container health alone does not complete a milestone.
 
 Python generation, logical replication, Airbyte, ClickHouse, and Airflow remain
 deferred until their own milestones.

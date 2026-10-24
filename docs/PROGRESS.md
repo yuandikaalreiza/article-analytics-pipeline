@@ -3,12 +3,12 @@
 ## Current state
 
 - **Milestone:** 1 - PostgreSQL database and articles table.
-- **Checkpoint:** Step 4 table creation and schema inspection complete; awaiting
-  your review before row-operation checks.
-- **Next step:** Step 5 - practice and verify operations, constraints,
-  repeatability, rollback, and persistence.
-- **Database implementation:** PostgreSQL is running with the agreed
-  `public.articles` table; it currently contains zero rows.
+- **Checkpoint:** Step 5 operation and persistence checks passed; database
+  milestone ready for your review.
+- **Next step:** Review milestone 1, then design the smallest Python insertion
+  CLI for milestone 2.
+- **Database implementation:** PostgreSQL is healthy with two labeled practice
+  articles: one active and one soft-deleted.
 
 Read [the roadmap](ROADMAP.md) for the sequence and [the PostgreSQL guide](01-postgresql.md)
 for design decisions and acceptance checks.
@@ -23,7 +23,7 @@ for design decisions and acceptance checks.
 - [x] Add repository agent guidance before starting PostgreSQL.
 - [x] Step 3: start PostgreSQL and verify a SQL connection.
 - [x] Step 4: create and inspect `public.articles`.
-- [ ] Step 5: verify operations, constraints, rollback, repeatability, and persistence.
+- [x] Step 5: verify operations, constraints, rollback, repeatability, and persistence.
 - [ ] Review the completed database milestone before designing basic Python inserts.
 
 ## 2026-10-24 - Step 1: create tracking documentation
@@ -302,6 +302,88 @@ clearly identified practice rows to verify operations, invalid values,
 transaction rollback, repeatability with retained data, and persistence through
 container recreation with the PostgreSQL 18 volume retained. The table remains
 empty and these changes remain uncommitted for review.
+
+## 2026-10-24 - Schema commit and Step 5 verification
+
+### Purpose
+
+Save the reviewed schema and storage correction, then prove article operations,
+constraint enforcement, rollback, repeatability, and persistence with a small
+practice dataset.
+
+### Commit
+
+- `345f1c5` - `feat: add articles schema and isolate PostgreSQL 18 storage`.
+- Contains the pending Step 3 storage correction, Step 4 table script, and
+  related documentation. The local `.env` and pre-existing root file deletions
+  were excluded.
+- Step 5 practice SQL and documentation remain uncommitted for review.
+
+### Changes
+
+- Added `sql/002_practice_articles.sql` as an explicit manual exercise separate
+  from initialization. It captures generated IDs, exercises operations and
+  rollback, and prints boolean results for inspection.
+- Used three committed practice insertions to exercise update, soft deletion,
+  and hard deletion. Two labeled rows remain for the learner to inspect.
+- Tested nine invalid statements through separate client invocations.
+- Repeated conditional schema creation twice with retained data, then recreated
+  only the PostgreSQL container with its existing named volume.
+- Updated the guide with verified commands, results, and explanations.
+
+### Verification evidence
+
+- Preflight confirmed a healthy service, zero article rows, and no pre-existing
+  `[practice step 5]` rows.
+- All eight positive-operation and rollback boolean assertions were true:
+  update preserved ID and creation time while advancing update time; soft delete
+  retained the row; hard delete removed its own row; rollback undid an insert,
+  update, and delete.
+- Missing title/publication inputs returned SQLSTATE `23502`. Zero/negative
+  authors, creation after publication, update before publication, deletion before
+  publication or after update, and an invalid existing-row update returned
+  `23514` with the expected named constraints. All nine clients exited with
+  expected SQL-error code `3`.
+- Every committed article value was unchanged after the rejected statements.
+- Two schema reruns succeeded. Table OID `16390`, row count `2`, and row
+  fingerprint `b5934dc43e2939ed872b4247a703c561` were unchanged.
+- Container recreation changed the container ID from `042fc44a5a74...` to
+  `2993f15413dd...`; the new container was healthy.
+- After recreation, the same table OID, row count, and full-row fingerprint were
+  retained. Mount inspection confirmed use of
+  `article-analytics-pipeline_postgres18_data`.
+- The old PostgreSQL 17 volume was untouched. No volume deletion or data reset
+  was performed.
+- The fresh PostgreSQL 18 initialization, schema application, and operation
+  sequence were verified across Steps 3 through 5. A second isolated clone was
+  not separately bootstrapped.
+
+### Retained data
+
+| ID | Title | State |
+| --- | --- | --- |
+| 1 | `[practice step 5] Persistence article` | Active; historical creation/publication, updated content. |
+| 2 | `[practice step 5] Soft-deleted article` | Retained with deletion and update timestamps set together. |
+
+The hard-deleted and rolled-back insert rows are absent. Failed and rolled-back
+inserts can leave sequence gaps; no identity reset was performed.
+
+### Learning notes
+
+- Soft deletion is an update that retains a row; hard deletion removes it.
+- Transactions can undo multiple kinds of row changes together.
+- Expected constraint errors are successful negative checks when their SQLSTATE
+  and constraint match the intended case.
+- Schema reruns preserve the existing table; retained volume storage preserves
+  data across container replacement. These are separate properties.
+- A new checkout does not imply an empty database when the same named Docker
+  volume already exists.
+
+### Next action and checkpoint
+
+Review the completed PostgreSQL milestone and inspect the retained practice
+rows. After review, design milestone 2's small Python insertion CLI. Python
+implementation, replication, and downstream pipeline services remain deferred.
 
 ## How to maintain this log
 
