@@ -29,6 +29,10 @@ project. Favor small changes the learner can inspect and understand.
 
 ## Implementation and Git
 
+- Use `uv` for Python dependency management and execution. Keep dependencies in
+  `pyproject.toml`, commit `uv.lock`, and run Python commands with `uv run --locked`.
+  Use `uv sync --locked --inexact` when syncing the existing environment to
+  preserve unrelated packages.
 - Keep runtime components local and open source. Choose the simplest approach
   that satisfies the active milestone; add tools and dependencies when needed.
 - Keep database settings in configuration and schema details in their guide or

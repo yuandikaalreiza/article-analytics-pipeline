@@ -5,7 +5,8 @@
 Build this project one small, observable step at a time. Understand each change,
 verify its result, and review it before continuing.
 
-- Read [the PostgreSQL guide](01-postgresql.md) for the current milestone.
+- Read [the PostgreSQL guide](01-postgresql.md) for database setup and SQL exercises.
+- For milestone 2, read [the Python insertion guide](02-python-inserts.md).
 - Read [the progress log](PROGRESS.md) for completed work and the next action.
 - Documentation is in English. Examples will use PowerShell on the local machine
   and the PostgreSQL container's included `psql` client.
@@ -14,8 +15,8 @@ verify its result, and review it before continuing.
 
 | Milestone | Learning goal | Completion evidence | Status |
 | --- | --- | --- | --- |
-| 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Step 5 checks passed; milestone review pending |
-| 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Deferred |
+| 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Reviewed and committed |
+| 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Step 2 uv dependencies verified; connection command pending |
 | 3. Historical data generation | Generate realistic articles from 2016 onward using seeds and batches. | Configurable counts, coherent timestamps, and measured batch performance. | Deferred |
 | 4. Ongoing data simulation | Perform inserts, updates, soft deletes, and hard deletes from Python. | Verified operations, configurable counts and intervals, and useful failure logs. | Deferred |
 | 5. Pipeline integrations | Introduce Airbyte, ClickHouse, then Airflow as separate learning milestones. | Define acceptance criteria when each integration becomes active. | Deferred |
@@ -43,5 +44,6 @@ The repository's [AGENTS.md](../AGENTS.md) defines the learning workflow,
 verification, documentation, and commit conventions for agents. Keep those
 instructions there; use this roadmap for milestone boundaries and sequencing.
 
-For now, use one PostgreSQL container and a named Docker volume. Do not add a
-database UI, Python package scaffolding, replication settings, or other services.
+Keep one PostgreSQL container and its named volume. Milestone 2 adds a Python
+script on the host and dependency tracking through uv; a database UI, installable
+package, replication settings, and additional services remain outside the active work.

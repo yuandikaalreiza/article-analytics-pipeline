@@ -2,10 +2,9 @@
 
 ## Current checkpoint
 
-**Step 5: operation and persistence checks passed; milestone review pending.**
-PostgreSQL is healthy with two labeled practice articles: one active and one
-soft-deleted. Review the completed database milestone before designing the
-basic Python insertion CLI.
+**Milestone 1 reviewed; operation and persistence checks passed.** PostgreSQL
+is healthy with two labeled practice articles: one active and one soft-deleted.
+The next milestone's plan is in [the Python insertion guide](02-python-inserts.md).
 
 Follow [the roadmap](ROADMAP.md) for the sequence and [the progress log](PROGRESS.md)
 for verification evidence. This guide records the approved design. Executable

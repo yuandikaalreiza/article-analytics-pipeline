@@ -2,16 +2,17 @@
 
 ## Current state
 
-- **Milestone:** 1 - PostgreSQL database and articles table.
-- **Checkpoint:** Step 5 operation and persistence checks passed; database
-  milestone ready for your review.
-- **Next step:** Review milestone 1, then design the smallest Python insertion
-  CLI for milestone 2.
+- **Milestone:** 2 - Basic Python inserts.
+- **Checkpoint:** Milestone 2 Step 2 dependency management and import checks
+  complete using uv; awaiting review.
+- **Next step:** Milestone 2 Step 3 - implement and verify the read-only
+  connection command.
 - **Database implementation:** PostgreSQL is healthy with two labeled practice
   articles: one active and one soft-deleted.
 
-Read [the roadmap](ROADMAP.md) for the sequence and [the PostgreSQL guide](01-postgresql.md)
-for design decisions and acceptance checks.
+Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
+for completed database work, and [the Python insertion guide](02-python-inserts.md)
+for the active milestone's design and acceptance checks.
 
 ## Checklist
 
@@ -24,7 +25,12 @@ for design decisions and acceptance checks.
 - [x] Step 3: start PostgreSQL and verify a SQL connection.
 - [x] Step 4: create and inspect `public.articles`.
 - [x] Step 5: verify operations, constraints, rollback, repeatability, and persistence.
-- [ ] Review the completed database milestone before designing basic Python inserts.
+- [x] Review the completed database milestone before designing basic Python inserts.
+- [x] Milestone 2 Step 1: document the basic Python CLI design.
+- [x] Milestone 2 Step 2: declare dependencies, lock them, and verify imports.
+- [ ] Milestone 2 Step 3: implement and verify the read-only connection command.
+- [ ] Milestone 2 Step 4: implement and verify small article insertions.
+- [ ] Milestone 2 Step 5: verify argument, configuration, and transaction behavior.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -384,6 +390,111 @@ inserts can leave sequence gaps; no identity reset was performed.
 Review the completed PostgreSQL milestone and inspect the retained practice
 rows. After review, design milestone 2's small Python insertion CLI. Python
 implementation, replication, and downstream pipeline services remain deferred.
+
+## 2026-10-24 - Database milestone commit and Python design checkpoint
+
+### Purpose
+
+Save the reviewed database verification work and define the smallest Python
+learning milestone before introducing application code.
+
+### Commit
+
+- `21d8685` - `test: verify article operations and PostgreSQL persistence`.
+- Contains the Step 5 practice SQL and related database documentation. Existing
+  root `README.md` and `.gitattributes` deletions were excluded, as were local
+  credentials and caches.
+- The new Python planning document and tracking updates remain uncommitted for
+  review.
+
+### Changes
+
+- Added `docs/02-python-inserts.md` with the dependency plan, one-script CLI,
+  configuration, transaction behavior, and verification sequence.
+- Split the milestone into five reviewable steps: design, dependencies,
+  connection check, inserts, then targeted validation.
+- Updated the roadmap and current checklist to identify milestone 2 as active.
+
+### Verification evidence
+
+- Read-only handoff checks confirmed a healthy PostgreSQL container and two
+  articles: one active and one soft-deleted. No article rows were changed.
+- The existing `.venv` interpreter reports Python `3.13.16`; uv reports
+  `0.13.1`.
+- Installed package metadata reports `psycopg` and `psycopg-binary` at `3.3.6`,
+  and `python-dotenv` at `1.2.4`. Driver imports and Python-to-database
+  connectivity have not been tested yet.
+- No Python source, dependency manifest, or lockfile was created. No packages
+  were installed, removed, or upgraded. Existing environment and cache contents
+  were preserved.
+
+### Learning notes
+
+- The generator will run on the host, so it connects to the published localhost
+  port; the previous container-side client used the Compose service name.
+- Recording dependencies makes a fresh setup reproducible even when packages
+  already happen to be present in this local environment.
+- A connection check and an insertion command are separate learning steps.
+- Small inserts should use one transaction per run so a failure cannot commit
+  only part of the requested articles.
+
+### Next action and checkpoint
+
+Review the Python guide. Then perform milestone 2 Step 2 only: add
+`pyproject.toml` and `uv.lock`, document the optional host setting in
+`.env.example`, and verify imports while retaining unrelated environment
+packages. Writing the connection command remains Step 3; inserts remain Step 4.
+
+## 2026-10-24 - Milestone 2 Step 2: uv dependency setup
+
+### Purpose
+
+Apply the user's choice of uv, declare reproducible Python dependencies, and
+verify imports while preserving the existing environment.
+
+### Changes
+
+- Added `pyproject.toml` with Python `>=3.13`, `psycopg[binary]==3.3.6`, and
+  `python-dotenv==1.2.4`. The script project has no build backend or installable
+  application package yet.
+- Generated `uv.lock` with uv `0.13.1` using the existing `.venv` interpreter.
+- Added the host-side `POSTGRES_HOST` setting to `.env.example`; left the actual
+  `.env` and credentials unchanged.
+- Recorded uv as the Python dependency/execution convention in `AGENTS.md` and
+  changed the planned application commands to `uv run --locked`.
+- Updated the Python guide and roadmap with verified setup results.
+
+### Verification evidence
+
+- Captured the installed package inventory before syncing: 14 packages.
+- The sandboxed PyPI lookup failed with a DNS error. Repeating lock generation
+  outside the sandbox succeeded and resolved five entries including the project.
+- `uv sync --locked --inexact` checked four external packages without installing,
+  removing, or upgrading any package. A before/after comparison confirmed all
+  14 pre-existing package names and versions were retained.
+- `uv lock --check --offline` passed with the selected interpreter and project
+  cache.
+- Imports through `uv run --locked` succeeded on Python `3.13.16`:
+  `psycopg` version `3.3.6`, driver implementation `binary`, and `python-dotenv`
+  version `1.2.4`.
+- No database command was executed and no application script was created.
+  Python-to-PostgreSQL connectivity remains unverified until Step 3.
+
+### Learning notes
+
+- `pyproject.toml` declares the project's requirements; `uv.lock` records the
+  resolved dependency set for repeatable setup.
+- `--locked` requires consistency with the lockfile. `--inexact` preserves
+  unrelated packages when syncing the existing environment.
+- A successful import proves that dependencies load, not that the database
+  connection or application behavior works.
+
+### Next action and checkpoint
+
+Review this dependency setup, then implement Step 3 only: add the `check`
+subcommand in `scripts/generate_articles.py` and verify a read-only connection
+using `uv run --locked`. Article insertion remains Step 4. Changes remain
+uncommitted for review.
 
 ## How to maintain this log
 
