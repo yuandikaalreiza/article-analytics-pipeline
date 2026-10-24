@@ -14,7 +14,7 @@ verify its result, and review it before continuing.
 
 | Milestone | Learning goal | Completion evidence | Status |
 | --- | --- | --- | --- |
-| 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Documentation created; implementation pending |
+| 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Step 2 configuration validated; database startup pending |
 | 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Deferred |
 | 3. Historical data generation | Generate realistic articles from 2016 onward using seeds and batches. | Configurable counts, coherent timestamps, and measured batch performance. | Deferred |
 | 4. Ongoing data simulation | Perform inserts, updates, soft deletes, and hard deletes from Python. | Verified operations, configurable counts and intervals, and useful failure logs. | Deferred |
@@ -29,7 +29,7 @@ remain self-hosted, open source, and runnable locally.
 | Step | Purpose | Files involved | Expected result | Verification |
 | --- | --- | --- | --- | --- |
 | 1. Create tracking documentation | Agree on the learning sequence and record progress. | The three Markdown files in `docs/`. | A navigable roadmap, guide, and progress log. | Read the documents, check their links, and confirm database work is still pending. |
-| 2. Configure PostgreSQL | Describe the local service and its settings. | Future `compose.yaml`, `.env.example`, local `.env`, and minimal `.gitignore`. | Valid Compose configuration with credentials excluded from Git. | Validate Compose, check ignore rules without printing credentials, and verify Docker engine access. |
+| 2. Configure PostgreSQL | Describe the local service and its settings. | `compose.yaml`, `.env.example`, local `.env`, and minimal `.gitignore`. | Valid Compose configuration with credentials excluded from Git. | Validate Compose, check ignore rules without printing credentials, and verify Docker engine access. |
 | 3. Start and inspect the database | Observe the difference between a running container and a usable database. | Compose and environment files; updated guide and log. | PostgreSQL accepts SQL connections to `article_source`. | Check health, database name, server version, and UTC session timezone. |
 | 4. Create the articles table | Learn columns, defaults, constraints, and the primary key. | Future `sql/001_articles.sql`; updated guide and log. | The agreed `public.articles` schema exists. | Inspect all eight columns, constraints, defaults, and indexes. |
 | 5. Practice and verify | Learn data changes, transactions, repeatability, and persistence. | SQL examples added to the guide; updated progress log. | Each acceptance check has recorded evidence. | Run the checks listed in the PostgreSQL guide. |
@@ -39,11 +39,9 @@ Steps 2 through 5 are performed separately, with a review checkpoint after each.
 
 ## Working agreement
 
-1. Explain the purpose and expected result before changing anything.
-2. Implement only the current step.
-3. Add the exact commands, examples, and observed results to the guide and log
-   when that step is performed. Do not record expected results as actual results.
-4. Explain what was learned and pause for review before the next step.
+The repository's [AGENTS.md](../AGENTS.md) defines the learning workflow,
+verification, documentation, and commit conventions for agents. Keep those
+instructions there; use this roadmap for milestone boundaries and sequencing.
 
 For now, use one PostgreSQL container and a named Docker volume. Do not add a
 database UI, Python package scaffolding, replication settings, or other services.

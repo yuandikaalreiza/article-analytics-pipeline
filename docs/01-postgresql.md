@@ -2,8 +2,9 @@
 
 ## Current checkpoint
 
-**Step 1: documentation created; review pending.** No Compose configuration,
-database, table, or SQL script has been created by this work.
+**Step 2: PostgreSQL configuration validated; review pending.** Compose and
+environment files now exist. PostgreSQL has not been started, and no table or
+SQL script has been created. Step 3 will start and inspect the database.
 
 Follow [the roadmap](ROADMAP.md) for the sequence and [the progress log](PROGRESS.md)
 for verification evidence. This guide records the approved design. Executable
@@ -29,9 +30,11 @@ results can be inspected separately.
 **Purpose:** describe one local service and understand its configuration before
 starting it.
 
-**Planned files:** `compose.yaml`, `.env.example`, local `.env`, and a minimal
-`.gitignore`. The example file contains documented development settings and a
-password placeholder; the local file supplies the actual password.
+**Files:** [`compose.yaml`](../compose.yaml), [`.env.example`](../.env.example),
+local `.env`, and a minimal [`.gitignore`](../.gitignore). The example file contains
+documented development settings and a password placeholder; the local file
+supplies the actual password. The existing local file was created with a randomly
+generated password; it was not printed or committed.
 
 | Setting | Agreed choice | Reason |
 | --- | --- | --- |
@@ -51,6 +54,77 @@ the user, or change its password. See the [official PostgreSQL image documentati
 
 **Expected result:** Compose configuration validates, credentials are ignored by
 Git, and Docker engine access is verified. This step does not start PostgreSQL.
+
+### Understand the configuration
+
+- `name` keeps the Compose project and its resource names consistent.
+- `services.postgres` describes the single service; it does not start it.
+- `environment` passes database settings into the container. Compose reads `.env`
+  to substitute values; a shell variable with the same name takes precedence.
+- `${POSTGRES_DB:-article_source}` uses the default when the variable is unset or
+  empty. `${POSTGRES_PASSWORD:?...}` rejects an unset or empty password.
+- `command` tells PostgreSQL to use UTC for its default session timezone.
+- `ports` maps the host port to port `5432` in the container. Binding to
+  `127.0.0.1` restricts access to this machine.
+- `volumes` declares persistent storage. Its default Docker name is
+  `article-analytics-pipeline_postgres_data`; the volume is created at startup.
+- `healthcheck` runs `pg_isready` over TCP every 10 seconds, with a 5-second
+  timeout, 5 retries, and a 30-second startup grace period. `$${POSTGRES_USER}`
+  defers substitution to the container shell instead of Compose.
+- `restart: unless-stopped` lets Docker restart a running service after a failure
+  or engine restart, unless it has been explicitly stopped.
+
+See [Docker's interpolation documentation](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/)
+for variable defaults and precedence. The initial `article_dev` database user is
+an administrator, suitable for this local learning milestone. Separate application
+permissions will be considered with the Python generator.
+
+### Prepare a new checkout
+
+From the repository root in PowerShell, run this only if `.env` does not already
+exist:
+
+```powershell
+Copy-Item -LiteralPath .env.example -Destination .env
+```
+
+Edit `.env` locally and replace the password placeholder with your own password.
+For this checkout, the local file is already prepared; keep it rather than
+overwriting it with the example. The `POSTGRES_PORT` variable controls only the
+host port. Change it if another service uses `5432`.
+
+### Commands used to verify Step 2
+
+Run from the repository root:
+
+```powershell
+docker compose version
+docker version --format '{{.Client.Version}} / {{.Server.Version}}'
+docker compose config --quiet
+git check-ignore -- .env .venv/ .cache/
+git check-ignore -- .env.example
+docker compose ps --all --format json
+```
+
+The configuration check should exit successfully without output. The ignore
+check should list the local environment and cache paths; the separate example
+check should print nothing and exit with code 1, meaning `.env.example` is
+trackable. The container listing is empty before the first startup.
+
+Use `config --quiet` for routine validation. Plain `docker compose config`
+displays the resolved environment, including the password. During verification,
+the JSON configuration was inspected in memory and only assertion results were
+printed.
+
+**Observed results:** Docker Compose `v5.5.1`, Docker client and server `29.8.2`,
+valid Compose configuration, correct host binding and volume mount, configured
+password, correct ignore behavior, and no containers for this project. Docker
+engine checks required execution outside the agent sandbox; no Docker Desktop
+settings were changed. No TCP listener on host port `5432` was observed at check
+time; startup will determine whether it can actually be bound.
+
+**Review checkpoint:** configuration is ready. Starting PostgreSQL, inspecting
+the database, and confirming runtime health belong to Step 3.
 
 ## Step 3: start and inspect the database
 
