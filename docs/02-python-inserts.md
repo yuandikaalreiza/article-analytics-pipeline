@@ -2,10 +2,9 @@
 
 ## Current checkpoint
 
-**Step 2: dependencies locked with uv and imports verified; review pending.**
-The dependency manifest and lockfile now exist. The existing environment's
-packages were preserved. No application script has been created and no article
-data was changed. Step 3 will implement the read-only connection command.
+**Step 3: read-only connection command implemented and verified; review pending.**
+The script connects through the host port and reports database readiness without
+changing article data. Step 4 will add the insertion command.
 
 Read [the roadmap](ROADMAP.md) for milestone boundaries and [the progress log](PROGRESS.md)
 for actual completion evidence. The [PostgreSQL guide](01-postgresql.md) remains
@@ -32,8 +31,8 @@ Read-only environment inspection found:
 | python-dotenv | `1.2.4` |
 
 These versions were initially read from installed metadata. Step 2 subsequently
-verified the binary driver and dotenv imports through uv. Connecting to
-PostgreSQL from Python remains a Step 3 check.
+verified the binary driver and dotenv imports through uv. Step 3 then verified
+Python-to-PostgreSQL connectivity and the unchanged article data.
 
 ## Ordered learning steps
 
@@ -45,8 +44,8 @@ PostgreSQL from Python remains a Step 3 check.
 | 4. Insert a few articles | Add the `insert` subcommand in that same script. | A small run returns generated IDs after committing; SQL confirms exactly those new rows. |
 | 5. Verify and explain | Add targeted tests and record success/failure cases. | Argument, configuration, timestamp, transaction, and integration checks pass; existing rows are unchanged. |
 
-Complete and review each step separately. Steps 1 and 2 are complete; Step 3 is
-next.
+Complete and review each step separately. Steps 1 through 3 are complete;
+Step 4 is next.
 
 ## Dependencies and file layout
 
@@ -111,12 +110,96 @@ environment from the lockfile, using a compatible Python installation or uv's
 normal interpreter provisioning. The existing-checkout commands above instead
 reuse the already available interpreter and do not download another Python.
 
-**Review checkpoint:** dependency management and imports are verified. The
-connection-check script and Python SQL execution remain Step 3.
+**Step 2 result:** dependency management and imports were verified. The next
+section records Step 3's connection and failure checks.
+
+## Step 3: check the database from Python
+
+The implemented script is
+[`scripts/generate_articles.py`](../scripts/generate_articles.py). Run from the
+repository root:
+
+```powershell
+uv run --locked python scripts/generate_articles.py --help
+uv run --locked python scripts/generate_articles.py check
+```
+
+During agent verification, `--cache-dir .cache/uv` was also passed to uv to keep
+cache access inside the workspace. The first connection attempt was blocked by
+the sandbox; the same check succeeded outside it, without changing Docker,
+firewall, or database settings.
+
+The verified output was:
+
+```text
+Database: article_source
+User: article_dev
+PostgreSQL: 18.6 (Debian 18.6-1.pgdg13+2)
+Timezone: UTC
+Read-only transaction: on
+Articles table: public.articles
+```
+
+### Read the script in execution order
+
+1. `main()` parses the required subcommand before loading configuration. Help
+   and usage errors therefore do not require database access.
+2. `load_settings()` explicitly locates the repository-root `.env`, preserves
+   process overrides, and validates the host, database, user, port, and password.
+3. `check_database()` opens a Psycopg connection with a five-second connect
+   timeout and marks its transaction read-only before executing SQL. See
+   [Psycopg transaction characteristics](https://www.psycopg.org/psycopg3/docs/api/connections.html#psycopg.Connection.read_only).
+4. A single query reads connection facts and checks whether `public.articles`
+   exists. It also reads `transaction_read_only`, proving the query ran in a
+   read-only transaction.
+5. The connection context finishes the transaction and closes the connection.
+   Only then does the command report success. A missing table produces an error
+   instead; the script never applies the schema automatically.
+
+The main-entry guard keeps importing the script free of configuration loading
+and database connections. Future insertion helpers can be added to the same
+file without running anything on import.
+
+Settings validation uses `get_required_env()` for the shared missing/blank check.
+`load_settings()` reads each setting explicitly, catches dotenv read failures
+only around dotenv loading, and catches integer conversion failures only around
+port parsing. These failures become `SettingsError`, so `main()` has one clear
+configuration-error handler. This keeps required-value checks, conversion, and
+CLI reporting easy to follow without introducing fallback connection values.
+
+### Verified behavior
+
+| Scenario | Observed result |
+| --- | --- |
+| Normal `check` | Exit `0`, correct database facts, UTC, read-only `on`, table available. |
+| Run from the `scripts` directory | Exit `0`; root `.env` still found correctly. |
+| `--help` | Exit `0` and describe the `check` command. |
+| No subcommand | Exit `2` with an argparse usage error. |
+| Override to an unused local port | Exit `1` with a safe connection error in about `5.63` seconds. |
+| Override database to `postgres`, which has no articles table | Exit `1` with the missing-table message; no schema changes. |
+| Nonnumeric port | Exit `1` with a concise configuration error. |
+| Example password placeholder | Exit `1` before connecting. |
+| Wrong password | Exit `1` without exposing the supplied test password or a traceback. |
+| Import the module | Does not load settings or open a connection. |
+
+Failure checks temporarily changed process variables and restored them afterward;
+the actual `.env` was unchanged. An initial combined check exposed a Windows
+test-procedure issue: restoring a previously absent variable through the .NET
+environment API left an empty port override. Removing the absent variable from
+`Env:` fixed the verification procedure, and all failure checks then passed.
+The application correctly treats an explicitly empty port as invalid.
+
+The pre/post SQL snapshot remained
+`2:b5934dc43e2939ed872b4247a703c561`: two articles with every stored value
+unchanged. This comparison was separate from the Python command's own query.
+
+**Review checkpoint:** the connection command is ready. Step 4 will add inserts;
+this step introduced no generated rows or schema changes.
 
 ## CLI behavior
 
-The following are planned commands, not commands executed in this checkpoint:
+The `check` command is implemented. The `insert` command is the planned
+interface for Step 4 and is not available yet:
 
 ```powershell
 uv run --locked python scripts/generate_articles.py check
@@ -148,19 +231,34 @@ rollback has occurred. See [Psycopg transactions](https://www.psycopg.org/psycop
 ## Configuration and execution flow
 
 Load the repository-root `.env` explicitly, preserving process environment
-overrides. Existing Compose settings remain usable:
+overrides. All five Python connection settings are required; the script has no
+fallback host, port, database name, or username. Local example values live in
+`.env.example`, not in the Python source:
 
-| Variable | Default or requirement |
+| Variable | Requirement and example |
 | --- | --- |
-| `POSTGRES_HOST` | `127.0.0.1`; documented in `.env.example` for host-side Python. |
-| `POSTGRES_PORT` | `5432`; validate as an integer between 1 and 65535. |
-| `POSTGRES_DB` | `article_source` |
-| `POSTGRES_USER` | `article_dev` |
+| `POSTGRES_HOST` | Required; local example `127.0.0.1`. |
+| `POSTGRES_PORT` | Required integer between 1 and 65535; local example `5432`. |
+| `POSTGRES_DB` | Required; local example `article_source`. |
+| `POSTGRES_USER` | Required; local example `article_dev`. |
 | `POSTGRES_PASSWORD` | Required; reject an empty value or the example placeholder. |
 
-The existing local `.env` need not be rewritten: an omitted host uses localhost.
+An absent or blank variable produces a configuration error before connecting.
+The local `.env` was extended with its previously missing `POSTGRES_HOST` entry
+from `.env.example`; its existing values and credentials were preserved.
 The host process uses the published port, while container-to-container clients
 use the Compose service name. Keep those connection contexts clear.
+
+The configuration follow-up checked all five variables as absent, empty, and
+whitespace-only: all 15 cases were rejected. Explicit values, process-variable
+precedence, and password whitespace were preserved. The real read-only check
+still succeeded using the completed local `.env`.
+
+The readability follow-up verified 22 validation/read-error cases, preserved
+explicit values and password whitespace, and confirmed that configuration errors
+return exit `1` before any connection attempt. The real read-only command also
+continued to succeed. Dotenv permission/encoding failures produce a safe
+`SettingsError` without exposing the underlying exception details.
 
 Execution order: parse arguments, load/validate settings, open a connection with
 a five-second connect timeout, run the selected command, finish the transaction,

@@ -3,10 +3,10 @@
 ## Current state
 
 - **Milestone:** 2 - Basic Python inserts.
-- **Checkpoint:** Milestone 2 Step 2 dependency management and import checks
-  complete using uv; awaiting review.
-- **Next step:** Milestone 2 Step 3 - implement and verify the read-only
-  connection command.
+- **Checkpoint:** Milestone 2 Step 3 read-only connection command implemented
+  and verified; connection settings now required from the environment; awaiting
+  review.
+- **Next step:** Milestone 2 Step 4 - add and verify small article insertions.
 - **Database implementation:** PostgreSQL is healthy with two labeled practice
   articles: one active and one soft-deleted.
 
@@ -28,7 +28,7 @@ for the active milestone's design and acceptance checks.
 - [x] Review the completed database milestone before designing basic Python inserts.
 - [x] Milestone 2 Step 1: document the basic Python CLI design.
 - [x] Milestone 2 Step 2: declare dependencies, lock them, and verify imports.
-- [ ] Milestone 2 Step 3: implement and verify the read-only connection command.
+- [x] Milestone 2 Step 3: implement and verify the read-only connection command.
 - [ ] Milestone 2 Step 4: implement and verify small article insertions.
 - [ ] Milestone 2 Step 5: verify argument, configuration, and transaction behavior.
 
@@ -495,6 +495,143 @@ Review this dependency setup, then implement Step 3 only: add the `check`
 subcommand in `scripts/generate_articles.py` and verify a read-only connection
 using `uv run --locked`. Article insertion remains Step 4. Changes remain
 uncommitted for review.
+
+## 2026-10-24 - uv setup commit and milestone 2 Step 3
+
+### Purpose
+
+Save the reviewed uv setup and Python plan, then verify the first application
+command's database connection without changing article data.
+
+### Commit
+
+- `5262ac5` - `build: manage Python dependencies with uv`.
+- Includes dependency tracking, the Python milestone plan, uv agent guidance,
+  and related documentation. Local credentials and pre-existing root file
+  deletions were excluded.
+- Step 3 source and documentation remain uncommitted for review.
+
+### Changes
+
+- Added `scripts/generate_articles.py` with a required `check` subcommand.
+- Added explicit repository-root dotenv loading, process-variable precedence,
+  configuration validation, and a five-second connection timeout.
+- Opened the check transaction as read-only and queried connection facts plus
+  article-table availability. The command does not initialize or change schema.
+- Added concise error reporting without raw database exceptions, connection
+  strings, or passwords. Success is reported after the connection closes.
+- Updated the Python guide with usage, execution flow, and actual outcomes.
+
+### Verification evidence
+
+- Preflight Docker status was healthy. The source table snapshot was
+  `2:b5934dc43e2939ed872b4247a703c561`.
+- The sandboxed Python connection could not reach the local port. Repeating the
+  same command outside the sandbox succeeded without environment-wide changes.
+- `uv run --locked ... check` exited `0` and reported database `article_source`,
+  user `article_dev`, PostgreSQL `18.6`, timezone `UTC`, read-only transaction
+  `on`, and available `public.articles`.
+- Running from the `scripts` directory also succeeded, verifying that root
+  dotenv loading is independent of the invocation directory.
+- Help exited `0`; omitting the required subcommand exited `2`.
+- An unused local port produced exit `1` and a safe connection error in about
+  `5.63` seconds. Missing table, invalid port, placeholder password, and wrong
+  password cases also returned the expected safe exit `1`.
+- The wrong-password output contained neither its supplied test password nor
+  a traceback or connection string.
+- The first combined failure check hit a verification-script issue: a .NET
+  restoration call left an empty port variable. Corrected restoration by removing
+  previously absent variables from `Env:` and reran all five failure checks
+  successfully. No application fix was required for this test-procedure issue.
+- Import checks confirmed no settings load or connection on module import.
+- The post-test SQL snapshot exactly matched the baseline: two rows with all
+  values unchanged. No database objects were added or removed, and `.env` was
+  not rewritten.
+
+### Learning notes
+
+- Dependency imports and successful authenticated database connections are
+  different checks.
+- `connection.read_only = True` makes PostgreSQL enforce a read-only transaction;
+  the query reports that setting as evidence.
+- Process overrides support controlled failure checks without editing local
+  credentials. An absent variable and an explicitly empty one can behave
+  differently, so temporary overrides must be restored carefully.
+- The command's main-entry guard allows helpers to be imported for later tests
+  without opening database connections.
+
+### Next action and checkpoint
+
+Review Step 3, then implement Step 4 only: add the `insert` subcommand, generate
+a few simple articles with coherent UTC timestamps, insert one run in a single
+transaction, and verify returned IDs and unchanged prior data. Formal unit and
+transaction-failure integration checks remain Step 5.
+
+## 2026-10-24 - Step 3 follow-up: require environment connection settings
+
+### Purpose
+
+Apply the user's request to keep connection values in environment configuration
+instead of hardcoding fallback values in Python.
+
+### Changes
+
+- Removed host, database, username, and port fallback values from the script.
+  All five connection settings must now be supplied by `.env` or process
+  variables; missing or blank settings produce an error before connecting.
+- Added the previously missing `POSTGRES_HOST` entry to the ignored local
+  `.env`, taking its value from `.env.example`. Appending the entry preserved
+  all existing settings and credentials.
+- Updated the Python guide to describe required configuration rather than
+  runtime defaults. No Compose configuration or database objects changed.
+
+### Verification evidence
+
+- All 15 absent, empty, and whitespace-only cases across the five required
+  variables raised the expected configuration error.
+- Custom connection values were retained, process overrides took precedence
+  over dotenv values, and password whitespace was preserved.
+- The real `uv run --locked ... check` command still succeeded with UTC,
+  read-only mode `on`, and `public.articles` available.
+- No article writes were performed. Local `.env` remains ignored by Git.
+
+### Next action and checkpoint
+
+Review the configuration correction. The next learning step remains milestone 2
+Step 4: add small article insertions. Changes remain uncommitted.
+
+## 2026-10-24 - Step 3 follow-up: readable settings error handling
+
+### Purpose
+
+Make settings loading and its try/except flow easier to read while retaining
+required environment configuration.
+
+### Changes
+
+- Added `get_required_env()` to share the missing/blank validation.
+- Replaced the mapping loop with explicit reads for host, database, user, port,
+  and password, followed by a clear return dictionary.
+- Kept exception handling close to dotenv loading and port conversion. Both
+  produce `SettingsError`, handled once by `main()`.
+- Preserved required connection values, process overrides, port validation,
+  password whitespace, and safe error messages. Added safe handling for dotenv
+  encoding failures alongside file-access errors.
+
+### Verification evidence
+
+- All 22 missing/blank, invalid-port, dotenv-read, and placeholder-password
+  cases raised the expected settings error.
+- Explicit values and password whitespace were preserved; shell values still
+  took precedence over dotenv configuration.
+- A CLI configuration failure returned `1` without calling the database driver.
+- The live `uv run --locked ... check` command succeeded with UTC, read-only
+  mode `on`, and the articles table available. No database writes were performed.
+
+### Next action and checkpoint
+
+Review the readability change. Milestone 2 Step 4 remains next; no insertion
+behavior was introduced and changes remain uncommitted.
 
 ## How to maintain this log
 
