@@ -3,12 +3,12 @@
 ## Current state
 
 - **Milestone:** 2 - Basic Python inserts.
-- **Checkpoint:** Milestone 2 Step 3 read-only connection command implemented
-  and verified; connection settings now required from the environment; awaiting
-  review.
-- **Next step:** Milestone 2 Step 4 - add and verify small article insertions.
-- **Database implementation:** PostgreSQL is healthy with two labeled practice
-  articles: one active and one soft-deleted.
+- **Checkpoint:** Milestone 2 Step 4 small article insertions implemented and
+  verified; awaiting review.
+- **Next step:** Milestone 2 Step 5 - add maintained unit/integration tests for
+  argument, configuration, and transaction behavior.
+- **Database implementation:** PostgreSQL is healthy with eight articles: the
+  two original SQL practice rows and six active Python demonstration rows.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
 for completed database work, and [the Python insertion guide](02-python-inserts.md)
@@ -29,7 +29,7 @@ for the active milestone's design and acceptance checks.
 - [x] Milestone 2 Step 1: document the basic Python CLI design.
 - [x] Milestone 2 Step 2: declare dependencies, lock them, and verify imports.
 - [x] Milestone 2 Step 3: implement and verify the read-only connection command.
-- [ ] Milestone 2 Step 4: implement and verify small article insertions.
+- [x] Milestone 2 Step 4: implement and verify small article insertions.
 - [ ] Milestone 2 Step 5: verify argument, configuration, and transaction behavior.
 
 ## 2026-10-24 - Step 1: create tracking documentation
@@ -632,6 +632,79 @@ required environment configuration.
 
 Review the readability change. Milestone 2 Step 4 remains next; no insertion
 behavior was introduced and changes remain uncommitted.
+
+## 2026-10-24 - Connection CLI commit and milestone 2 Step 4
+
+### Purpose
+
+Save the reviewed read-only CLI and settings cleanup, then insert a few articles
+from Python using one transaction per invocation.
+
+### Commit
+
+- `d4911e8` - `feat: add read-only PostgreSQL connection CLI`.
+- Includes the connection command, required environment configuration, readable
+  settings errors, and related documentation. Local credentials and existing
+  root file deletions were excluded.
+- Step 4 changes remain uncommitted for review.
+
+### Changes
+
+- Added `insert` with positive `--count` and `--author-id` arguments, defaulting
+  to one article and author `1`.
+- Added small helpers for integer validation, demonstration article creation,
+  and parameterized insertion with `RETURNING id`.
+- Generated coherent timezone-aware UTC timestamps and null deletion times.
+- Kept transaction ownership in `main()`'s connection context; the insertion
+  helper does not commit per row. Results are printed after successful commit.
+- Preserved environment-only connection settings and the read-only check command.
+- Updated the guide with usage, execution flow, actual IDs, and verification.
+
+### Verification evidence
+
+- Preflight confirmed a healthy service and two existing articles. Captured a
+  fingerprint of each original row before writes.
+- The default insert invocation exited `0`, committing ID `13` with author `1`.
+- `insert --count 5 --author-id 7` exited `0`, committing IDs `14` through `18`
+  with author `7`.
+- A separate SQL connection confirmed all six returned IDs exist. Creation,
+  publication, and update timestamps match for each new row; deletion is null.
+- Content containing an apostrophe was stored correctly through bound parameters.
+- Total count grew from `2` to `8`. Both original row fingerprints were unchanged.
+- Eight invalid count/author cases exited `2` before configuration loading or
+  database connection.
+- A transaction smoke check inserted a valid probe followed by an invalid
+  author. PostgreSQL rejected the second insert and the first rolled back.
+  The entire eight-row snapshot was unchanged afterward, with no retained probe.
+- The read-only `check` command still succeeded with UTC, read-only mode `on`,
+  and the article table available.
+
+### Retained Python demonstration rows
+
+| IDs | Count | Author | State |
+| --- | --- | --- | --- |
+| `13` | 1 | `1` | Active |
+| `14`, `15`, `16`, `17`, `18` | 5 | `7` | Active |
+
+The earlier rows `1` and `2` remain intact. Failed and rolled-back operations
+can consume identity values; no sequence reset was performed.
+
+### Learning notes
+
+- Parameterized SQL sends article values separately from the SQL statement,
+  correctly handling quoted text.
+- `RETURNING` provides the actual generated IDs; successful exit from the
+  connection context commits before those IDs are reported to the user.
+- The insertion helper participates in its caller's transaction, making the
+  entire invocation atomic and allowing a real rollback check.
+- These are deliberately small demonstration inserts. Bulk performance and
+  realistic historical distributions belong to later milestones.
+
+### Next action and checkpoint
+
+Review Step 4 and the retained rows, then perform Step 5: add maintained unit
+and PostgreSQL integration tests for configuration, arguments, UTC timestamps,
+commit/rollback, and safe errors. No additional pipeline services are needed.
 
 ## How to maintain this log
 

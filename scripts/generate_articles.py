@@ -1,8 +1,10 @@
-"""Inspect the local article database before adding article generation."""
+"""Inspect the local article database and insert small demonstration datasets."""
 
 import argparse
 import logging
 import os
+from collections.abc import Iterable
+from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg
@@ -78,11 +80,71 @@ def check_database(settings: dict[str, str | int]) -> dict[str, object]:
     return result
 
 
+def positive_int(value: str) -> int:
+    """Validate positive CLI integers before opening a database connection."""
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a positive integer") from None
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
+
+def make_article(number: int, author_id: int) -> dict[str, object]:
+    """Create one demonstration article with consistent UTC timestamps."""
+    now = datetime.now(timezone.utc)
+    return {
+        "title": f"[python demo] Article {number}",
+        "content": f"This article's content is generated for local practice, article {number}.",
+        "published_at": now,
+        "author_id": author_id,
+        "created_at": now,
+        "updated_at": now,
+        "deleted_at": None,
+    }
+
+
+def insert_articles(
+    connection: psycopg.Connection,
+    articles: Iterable[dict[str, object]],
+) -> list[int]:
+    """Insert articles in the caller's transaction and collect generated IDs."""
+    inserted_ids = []
+    with connection.cursor(row_factory=dict_row) as cursor:
+        for article in articles:
+            cursor.execute(
+                """
+                INSERT INTO public.articles (
+                    title, content, published_at, author_id,
+                    created_at, updated_at, deleted_at
+                ) VALUES (
+                    %(title)s, %(content)s, %(published_at)s, %(author_id)s,
+                    %(created_at)s, %(updated_at)s, %(deleted_at)s
+                )
+                RETURNING id
+                """,
+                article,
+            )
+            result = cursor.fetchone()
+            if result is None:
+                raise RuntimeError("Article insertion returned no ID.")
+            inserted_ids.append(result["id"])
+    return inserted_ids
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Work with the local article source database.")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("check", help="Check the database connection without changing data.")
-    parser.parse_args(argv)
+    insert_command = commands.add_parser("insert", help="Insert a few demonstration articles.")
+    insert_command.add_argument(
+        "--count", type=positive_int, default=1, help="Number of articles (default: 1)."
+    )
+    insert_command.add_argument(
+        "--author-id", type=positive_int, default=1, help="Author ID (default: 1)."
+    )
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     try:
@@ -92,13 +154,26 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        result = check_database(settings)
+        if args.command == "check":
+            result = check_database(settings)
+        else:
+            articles = (
+                make_article(number, args.author_id)
+                for number in range(1, args.count + 1)
+            )
+            with psycopg.connect(**settings, connect_timeout=5) as connection:
+                inserted_ids = insert_articles(connection, articles)
     except psycopg.OperationalError:
         logging.error("Database connection failed. Check PostgreSQL and connection settings.")
         return 1
     except (psycopg.Error, RuntimeError):
-        logging.error("Database check failed. Check database readiness and permissions.")
+        logging.error("Database operation failed. Check schema, permissions, and article values.")
         return 1
+
+    if args.command == "insert":
+        print(f"Inserted articles: {len(inserted_ids)}")
+        print(f"IDs: {', '.join(str(article_id) for article_id in inserted_ids)}")
+        return 0
 
     if not result["articles_table_exists"]:
         logging.error("public.articles is missing. Apply sql/001_articles.sql first.")

@@ -2,9 +2,10 @@
 
 ## Current checkpoint
 
-**Step 3: read-only connection command implemented and verified; review pending.**
-The script connects through the host port and reports database readiness without
-changing article data. Step 4 will add the insertion command.
+**Step 4: small article insertion command implemented and verified; review pending.**
+The CLI can check readiness and insert a requested number of demonstration
+articles. Six generated articles were added while preserving the two existing
+practice rows. Step 5 will add the formal validation and integration test suites.
 
 Read [the roadmap](ROADMAP.md) for milestone boundaries and [the progress log](PROGRESS.md)
 for actual completion evidence. The [PostgreSQL guide](01-postgresql.md) remains
@@ -44,8 +45,8 @@ Python-to-PostgreSQL connectivity and the unchanged article data.
 | 4. Insert a few articles | Add the `insert` subcommand in that same script. | A small run returns generated IDs after committing; SQL confirms exactly those new rows. |
 | 5. Verify and explain | Add targeted tests and record success/failure cases. | Argument, configuration, timestamp, transaction, and integration checks pass; existing rows are unchanged. |
 
-Complete and review each step separately. Steps 1 through 3 are complete;
-Step 4 is next.
+Complete and review each step separately. Steps 1 through 4 are complete;
+Step 5 is next.
 
 ## Dependencies and file layout
 
@@ -196,15 +197,86 @@ unchanged. This comparison was separate from the Python command's own query.
 **Review checkpoint:** the connection command is ready. Step 4 will add inserts;
 this step introduced no generated rows or schema changes.
 
-## CLI behavior
+## Step 4: insert a few articles
 
-The `check` command is implemented. The `insert` command is the planned
-interface for Step 4 and is not available yet:
+Both commands are now implemented. From the repository root:
 
 ```powershell
 uv run --locked python scripts/generate_articles.py check
-uv run --locked python scripts/generate_articles.py insert --count 5 --author-id 1
+uv run --locked python scripts/generate_articles.py insert
+uv run --locked python scripts/generate_articles.py insert --count 5 --author-id 7
 ```
+
+The first insert uses the defaults of one article and author `1`. The second
+requests five articles for author `7`. The author field is a positive numeric
+identifier; there is still no authors table or foreign key.
+
+Observed output from the two insertion runs:
+
+```text
+Inserted articles: 1
+IDs: 13
+```
+
+```text
+Inserted articles: 5
+IDs: 14, 15, 16, 17, 18
+```
+
+IDs are observations of this database, not values to expect on another run.
+Article text is labeled `[python demo]` so it is distinguishable from the earlier
+SQL practice rows. Repeating a run appends more articles, even when their text
+matches existing demonstrations.
+
+### Read the insertion flow
+
+1. `positive_int()` validates `--count` and `--author-id` through argparse before
+   settings loading or database access.
+2. `make_article()` creates one article with a timezone-aware UTC instant shared
+   by creation, publication, and update. It leaves `deleted_at` null and omits
+   `id` so PostgreSQL generates it.
+3. `main()` supplies a generator of articles to `insert_articles()` inside a
+   Psycopg connection context. The helper uses a cursor and returns generated
+   IDs without committing individual rows.
+4. Named SQL parameters pass values separately from the statement; text is not
+   interpolated into SQL. The demonstration content includes an apostrophe,
+   which was stored correctly. See [Psycopg parameter binding](https://www.psycopg.org/psycopg3/docs/basic/params.html).
+5. Successful context exit commits the entire run and closes the connection.
+   Any insertion error escapes that context so it rolls back before the CLI
+   reports a safe error. Count and IDs are printed only after successful commit.
+
+This implementation intentionally uses one insert statement per article for a
+small learning dataset. Generation is lazy, but returned IDs are retained in
+memory. Large historical loads and bulk insertion will be designed later.
+
+### Verified results
+
+| Scenario | Observed result |
+| --- | --- |
+| Default invocation | One committed article, ID `13`, author `1`. |
+| Five-article invocation | Five committed articles, IDs `14` through `18`, author `7`. |
+| Stored timestamps and deletion state | Each new article has matching creation/publication/update times and null deletion. |
+| Existing rows | Fingerprints for both SQL practice rows were unchanged. |
+| Total row count | Increased from `2` to `8`; exactly six new returned IDs are present. |
+| Invalid count/author values | Eight zero, negative, nonnumeric, and fractional cases exited `2` before settings loading or connection. |
+| Failed second insertion | A valid probe followed by an invalid author caused a constraint error; the first insertion rolled back. All eight committed rows were unchanged. |
+| Read-only `check` after insertion | Still exited `0`, reporting UTC, read-only `on`, and table availability. |
+
+The transaction smoke check called the insertion helper with two articles, one
+valid and one with author `0`, inside the same connection context used by the
+CLI. A separate connection compared the full row count and fingerprint before
+and after rollback. No probe article remained. This verifies the rollback path
+without adding a public failure-injection flag or changing database constraints.
+
+The six generated rows remain available to inspect. Failed probe inserts may
+advance the identity sequence; do not reset it to remove gaps.
+
+**Review checkpoint:** Step 4 is verified. Step 5 will turn the targeted smoke
+checks into maintained unit/integration tests and cover the remaining failure
+cases. No new dependency, database migration, historical generator, or continuous
+simulation was introduced.
+
+## CLI behavior
 
 - `check` performs a read-only connection check, reports safe connection facts,
   and fails if `public.articles` is unavailable. It does not create tables.
