@@ -3,12 +3,12 @@
 ## Current state
 
 - **Milestone:** 5 - Pipeline integrations.
-- **Checkpoint:** ClickHouse saved in `ae10852`. Airbyte 2.4.0 is installed
-  through official `abctl` v0.30.4; UI and API health checks passed.
-- **Next step:** Configure PostgreSQL as an Airbyte source and ClickHouse as a
-  destination for one manual initial transfer. CDC and Airflow remain deferred.
-- **Database implementation:** PostgreSQL remains healthy with all 2,518 articles
-  unchanged. ClickHouse has the empty `article_analytics` database.
+- **Checkpoint:** Initial transfer was observed with 2,518 distinct articles in
+  ClickHouse 26.7.37.6. The learner configured PostgreSQL CDC in Airbyte.
+- **Next step:** Add a duration-based simulator while retaining the configured hourly Airbyte schedule.
+- **Database implementation:** PostgreSQL now has 3,318 articles: 3,217 active
+  and 101 soft-deleted. After the single-row CDC progress probe, job 7 completed
+  with 1,401 committed records; ClickHouse returned 3,318 rows and 101 soft-deleted.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
 for completed database work, [the Python insertion guide](02-python-inserts.md)
@@ -52,7 +52,11 @@ records installation settings and connection commands. The
 - [x] Commit ClickHouse setup and pending tracking documentation.
 - [x] Download and checksum-verify the official Windows abctl executable.
 - [x] Install minimal Airbyte and verify its local UI and application readiness.
-- [ ] Set up the initial PostgreSQL-to-ClickHouse transfer with Airbyte.
+- [x] Observe the initial PostgreSQL-to-ClickHouse transfer: 2,518 distinct IDs.
+- [x] Commit and independently verify 500 new articles and 800 existing-row updates.
+- [x] Commit and independently verify 300 additional inserts, 1,000 updates,
+  and 100 soft deletes in separate existing-row groups.
+- [ ] Verify those 1,300 changes in ClickHouse and confirm the Airbyte sync result.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -1156,6 +1160,85 @@ No runtime configuration or data changed during this checkpoint. The prior
 successful installer, UI, and API health checks remain the recorded evidence;
 they were not rerun for this Git-only step. Connector configuration and the
 first transfer remain the next task.
+
+## 2026-10-25 - Generate source changes for CDC verification
+
+The learner requested 500 new articles and updates to 800 existing articles.
+Executed SQL through the container's `psql` client in one transaction with
+stop-on-error behavior. No Python CLI features or dependencies were added.
+
+- Before: 2,518 articles. Selected the first 800 active existing IDs ordered by
+  ID, before inserting new rows. Selection contained gaps; its range is 1–843.
+- Inserted 500 synthetic media articles, IDs 2561–3060, author 7, with equal
+  current UTC creation, publication, and update timestamps.
+- Updated exactly 800 selected articles: appended a marker to their titles,
+  appended an editorial note to content, and advanced `updated_at`.
+- Marker: `[cdc-20261025-500-800]`. New titles start with this marker; updated
+  titles end with it. A guard prevents replaying the same exercise accidentally.
+- Before commit, SQL assertions verified operation counts, the 500-row increase,
+  preservation of every untargeted existing row, and unchanged author, creation,
+  publication, and deletion values for edited rows. All passed; commit succeeded.
+- A separate connection confirmed 3,018 rows, exactly 500 marked insertions and
+  800 marked updates, and the one pre-existing soft-deleted row. No deletion ran.
+- Immediately afterward, ClickHouse queried with `FINAL` still returned 2,518
+  rows and zero matches for either marker group. Replication is pending verification.
+
+The already-running CDC job previously logged a 1,200-second watchdog and
+non-progressing heartbeats on an idle source. These writes provide committed
+article changes; successful job completion must still be checked separately.
+No sync was triggered or cancelled by the agent during this exercise.
+
+Next: inspect Airbyte job status and query ClickHouse for all 500 new IDs and
+800 edited titles. Row counts alone do not verify that updates arrived.
+
+## 2026-10-25 - Additional inserts, edits, and soft deletions for CDC
+
+The learner requested another 300 articles, 1,000 existing-row updates, and
+100 soft deletions. Executed one SQL transaction through the PostgreSQL
+container's `psql`, with stop-on-error, a short lock timeout, and a table write
+lock while selecting targets and checking results. No application changes.
+
+- Before: 3,018 rows. Selected 1,000 active existing rows ordered by ID for
+  editorial updates, followed by 100 different active existing rows for deletion.
+  Newly inserted articles were excluded from both selections.
+- Inserted IDs 3061–3360 (300 rows), author 7, coherent current UTC timestamps.
+- Updated 1,000 IDs in the range 1–1043 (with existing gaps): appended title
+  marker `[cdc-20261025-300-1000-100]`, an editorial content note, and advanced
+  `updated_at`. New article titles start with the same marker. Replay is guarded.
+- Soft-deleted IDs 1044–1143 (100 rows). Set `deleted_at = updated_at` to
+  `2026-10-25T10:46:39.236712Z`; retained their titles, content, authors,
+  creation timestamps, and publication timestamps. No hard deletions.
+- Pre-commit assertions passed for exact operation counts, preservation of all
+  untargeted rows, immutable editorial fields, coherent soft-deletion values,
+  and retention of every existing ID. Commit succeeded.
+- Independent post-commit query verified all 300 inserts, 1,000 updates, and
+  100 soft deletions. Total: 3,318 rows, 3,217 active, 101 soft-deleted.
+- ClickHouse `FINAL` immediately showed 3,018 rows, zero new insert/update
+  marker matches, and zero soft-deleted rows in IDs 1044–1143. This establishes
+  that the latest batch was not yet visible there; no sync was triggered.
+
+Next: verify this batch in ClickHouse and the Airbyte sync result. Soft deletes
+are updates to `deleted_at`; their rows should remain and be excluded from
+active-article queries with `deleted_at IS NULL`.
+
+## 2026-10-25 - Single-row CDC progress probe
+
+At the learner's request, updated the first active article, ID 1, in one
+transaction. Appended a unique `[cdc-progress-...]` title marker and advanced
+`updated_at` to `2026-10-25T10:59:59.419408Z`. PostgreSQL returned `UPDATE 1`
+and `COMMIT`; the row remains active. Content and other fields were untouched.
+No insert or deletion ran, so the expected source total remains 3,318.
+
+Purpose: test whether a committed published-table change advances the running
+Airbyte job beyond its target WAL position. Immediately after commit,
+`replication-job-7-attempt-0` was still running; completion requires a later log
+check. This is a diagnostic probe, not an automatic heartbeat implementation.
+
+Follow-up logs at `11:00:01Z` reported
+`close-reason=RECORD_REACHED_TARGET_POSITION`. The processed position
+`0/22F4C48` exceeded target `0/22E6930`. At `11:00:15Z`, the replication
+summary reported 1,401 records synced and committed and ended replication.
+The probe therefore advanced the CDC read that had been waiting.
 
 ## How to maintain this log
 

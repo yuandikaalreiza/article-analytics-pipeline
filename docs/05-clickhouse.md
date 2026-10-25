@@ -7,14 +7,17 @@ See [the progress log](PROGRESS.md) for actual runtime verification.
 
 The existing [compose.yaml](../compose.yaml) now defines PostgreSQL and ClickHouse
 as separate services. ClickHouse uses the official
-`clickhouse/clickhouse-server:latest` image, which follows the stable release
-branch. The installed version and image digest are recorded in the progress log.
+`clickhouse/clickhouse-server:26.7` image. Version 26.7.37.6 was verified after
+the Airbyte compatibility fix; the initial installation used `latest` (26.10).
 
 - Database and user: `article_analytics` and `clickhouse_dev`, configured through
   `.env`. The password is in the ignored local `.env`; tracked settings use a
   placeholder in [.env.example](../.env.example).
 - HTTP endpoint: `http://127.0.0.1:8123`, with a configurable host port.
-- Data: named volume `clickhouse_data` mounted at `/var/lib/clickhouse`.
+- Data: named volume `clickhouse_26_7_data` mounted at `/var/lib/clickhouse`.
+  The original `clickhouse_data` volume is retained separately.
+- Client compression: [compression.xml](../clickhouse/users.d/compression.xml)
+  is mounted read-only under `/etc/clickhouse-server/users.d/` and selects LZ4.
 - Readiness: an authenticated `SELECT 1` through the included native client.
 - Open-file limit: 262144, following the Docker guide.
 
@@ -45,8 +48,8 @@ SELECT version(), currentDatabase(), currentUser();
 SHOW TABLES;
 ```
 
-The analytics database starts without application tables. Creating the article
-destination and transferring PostgreSQL data are subsequent tasks.
+Airbyte now creates and maintains `article_analytics.articles`. Query it using
+`FINAL` when checking deduplicated results.
 
 To stop only ClickHouse while retaining its data:
 
@@ -55,5 +58,12 @@ docker compose stop clickhouse
 ```
 
 Starting the service again reuses its named volume. PostgreSQL keeps its own
-service and volume. No application tables, data transfer, CDC, or Airbyte are
-part of this installation step.
+service and volume.
+
+## Airbyte compatibility
+
+The initial 26.10 server exposed two Java-client incompatibilities: ZSTD
+responses caused an LZ4 decoding error, and a response-format override caused
+schema parsing to fail. LZ4 alone fixed only the first error. Pinning 26.7
+with a fresh volume resolved the schema failure; the previous volume was kept
+instead of opening newer database files with an older server.

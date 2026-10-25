@@ -86,7 +86,25 @@ The host's Docker mapping for Airbyte uses port 8000 on all interfaces; the
 ingress accepts the configured `localhost` hostname. PostgreSQL and ClickHouse
 retain their existing loopback-only host bindings.
 
-## Scope
+## Subsequent CDC verification
+
+The learner configured the PostgreSQL source and ClickHouse destination in the
+UI. PostgreSQL now starts with `wal_level=logical`; source CDC uses slot
+`airbyte_slot` and publication `airbyte_publication`. Container-to-host access
+uses `host.docker.internal`. The local PostgreSQL server uses disabled SSL.
+ClickHouse uses HTTP port 8123 and the 26.7 compatibility configuration described
+in [its guide](05-clickhouse.md).
+
+Initial transfer and later committed source changes were observed in ClickHouse.
+An idle CDC read logged `Heartbeat not progressing` while its processed WAL
+position remained below the target. A requested single-row update advanced it;
+job 7 then completed with 1,401 committed records. This is a documented local
+observation, not a requirement to manually write data before every sync.
+
+The learner configured an hourly Airbyte schedule. Airflow remains deferred.
+Check each job's final status separately from the generator's status.
+
+## Original installation scope
 
 This step installs Airbyte only. Next configure PostgreSQL as a source and
 ClickHouse as a destination, then perform one manual initial transfer. Connector

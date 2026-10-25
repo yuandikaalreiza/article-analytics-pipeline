@@ -8,7 +8,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-article_source}
       POSTGRES_USER: ${POSTGRES_USER:-article_dev}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    command: ["postgres", "-c", "timezone=UTC"]
+    command: ["postgres", "-c", "timezone=UTC", "-c", "wal_level=logical"]
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -23,7 +23,7 @@ services:
       start_period: 30s
 
   clickhouse:
-    image: clickhouse/clickhouse-server:latest
+    image: clickhouse/clickhouse-server:26.7
     restart: unless-stopped
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:?Set CLICKHOUSE_DB in .env}
@@ -32,7 +32,8 @@ services:
     ports:
       - "127.0.0.1:${CLICKHOUSE_HTTP_PORT:-8123}:8123"
     volumes:
-      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_26_7_data:/var/lib/clickhouse
+      - ./clickhouse/users.d/compression.xml:/etc/clickhouse-server/users.d/compression.xml:ro
     ulimits:
       nofile:
         soft: 262144
@@ -49,3 +50,4 @@ services:
 volumes:
   postgres18_data:
   clickhouse_data:
+  clickhouse_26_7_data:
