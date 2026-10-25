@@ -8,6 +8,8 @@ verify its result, and review it before continuing.
 - Read [the PostgreSQL guide](01-postgresql.md) for database setup and SQL exercises.
 - For milestone 2, read [the Python insertion guide](02-python-inserts.md).
 - For milestone 3, read [the October generation plan](03-historical-generation.md).
+- For milestone 4, read [the ongoing simulation guide](04-ongoing-simulation.md).
+- For ClickHouse setup, read [the Docker installation guide](05-clickhouse.md).
 - Read [the progress log](PROGRESS.md) for completed work and the next action.
 - Documentation is in English. Examples will use PowerShell on the local machine
   and the PostgreSQL container's included `psql` client.
@@ -19,8 +21,33 @@ verify its result, and review it before continuing.
 | 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Reviewed and committed |
 | 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Reviewed and complete; 21 tests passed |
 | 3. Historical data generation | Start with 2,500 synthetic articles from October 1, 2026, through a fixed October cutoff; use seeds and bounded batches. | Verified counts, coherent timestamps, reproducibility, and observed load time. | Reviewed and complete: 2,500 added, 2,513 total |
-| 4. Ongoing data simulation | Perform inserts, updates, soft deletes, and hard deletes from Python. | Verified operations, configurable counts and intervals, and useful failure logs. | Deferred |
-| 5. Pipeline integrations | Introduce Airbyte, ClickHouse, then Airflow as separate learning milestones. | Define acceptance criteria when each integration becomes active. | Deferred |
+| 4. Ongoing data simulation | Perform inserts, updates, soft deletes, and hard deletes from Python. | Verified operations, configurable counts and intervals, and useful failure logs. | Current inserts verified; further simulation deferred by learner |
+| 5. Pipeline integrations | Install ClickHouse first, then connect the pipeline with Airbyte; introduce Airflow later. | ClickHouse accepts SQL locally; define integration checks when the connection work starts. | ClickHouse installed and SQL verified; initial transfer is next |
+
+## ClickHouse installation: complete
+
+Follow the [official Docker installation guide](https://clickhouse.com/docs/get-started/setup/self-managed/docker).
+The source already has sufficient data; further Python simulation is deferred.
+
+1. Add one `clickhouse` service to the existing `compose.yaml`, using the official
+   `clickhouse/clickhouse-server` image. Use the documented stable `latest` tag
+   for the initial installation and record the pulled version and image digest.
+2. Add database/user/password settings to `.env.example` and the ignored local
+   `.env`. Create `article_analytics` with a local `clickhouse_dev` user.
+3. Mount a named volume at `/var/lib/clickhouse`, publish HTTP port 8123 on
+   `127.0.0.1`, set the documented `nofile` limit of 262144, and add a simple
+   readiness check. Use the included client; no extra client installation or
+   custom XML configuration is needed.
+4. Validate Compose, start only ClickHouse, and verify `SELECT 1`, the installed
+   version, and database availability. Preserve the PostgreSQL container/data.
+5. Record the actual results in the progress log. Creating destination tables,
+   transferring articles, CDC, Airbyte, and Airflow are subsequent tasks.
+
+ClickHouse is running and healthy. Authenticated HTTP SQL confirmed version
+`26.10.2.103`, database `article_analytics`, and user `clickhouse_dev`.
+The database has no application tables yet. Next, set up Airbyte for an initial
+PostgreSQL-to-ClickHouse transfer; decide destination table handling during that
+step. Further simulation, CDC, and Airflow remain deferred.
 
 Later milestones are a direction, not an implementation specification. Design
 each one after the preceding milestone has been reviewed. All components must
@@ -45,6 +72,7 @@ The repository's [AGENTS.md](../AGENTS.md) defines the learning workflow,
 verification, documentation, and commit conventions for agents. Keep those
 instructions there; use this roadmap for milestone boundaries and sequencing.
 
-Keep one PostgreSQL container and its named volume. Milestone 2 adds a Python
-script on the host and dependency tracking through uv; a database UI, installable
-package, replication settings, and additional services remain outside the active work.
+The current runtime is one PostgreSQL container and one ClickHouse container,
+each with its own named volume. Python runs on the host through uv. Add the
+next service when its integration step starts; no installable Python package,
+replication settings, or orchestration is needed for the installation checkpoint.

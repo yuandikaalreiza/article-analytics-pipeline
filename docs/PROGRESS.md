@@ -2,19 +2,20 @@
 
 ## Current state
 
-- **Milestone:** 3 - Historical data generation, starting in October 2026.
-- **Checkpoint:** October generation and ingestion reviewed and complete.
-  Generation, preview, and transactional loading are implemented; the latest
-  suites passed 21 unit and 9 integration tests.
-- **Next step:** Plan ongoing operation simulation, starting with one-time
-  current article inserts, then updates and deletion operations in separate steps.
-- **Database implementation:** 2,513 articles: 2,500 new October articles and all
-  13 original articles unchanged. Fixtures were cleaned up; the actual load remains.
+- **Milestone:** 5 - Pipeline integrations.
+- **Checkpoint:** ClickHouse installation reviewed and verified; saving the
+  configuration and documentation before starting minimal Airbyte setup.
+- **Next step:** Set up Airbyte for the initial PostgreSQL-to-ClickHouse transfer.
+  Further simulation, CDC, and Airflow remain deferred.
+- **Database implementation:** PostgreSQL remains healthy with all 2,518 articles
+  unchanged. ClickHouse has the empty `article_analytics` database.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
 for completed database work, [the Python insertion guide](02-python-inserts.md)
-for milestone 2, and [the October generation plan](03-historical-generation.md)
-for the active milestone's design and acceptance checks.
+for milestone 2, [the October generation guide](03-historical-generation.md)
+for milestone 3, and [the ongoing simulation guide](04-ongoing-simulation.md)
+for the deferred simulation work. The [ClickHouse guide](05-clickhouse.md)
+records installation settings and connection commands.
 
 ## Checklist
 
@@ -40,6 +41,14 @@ for the active milestone's design and acceptance checks.
 - [x] Milestone 3 Step 3: implement transactional loading and verify with fixtures.
 - [x] Milestone 3 Step 4: load and inspect the 2,500-row October dataset.
 - [x] Review the completed October dataset.
+- [x] Milestone 4 Step 1: insert and verify five current articles.
+- [ ] Review the current article insert exercise.
+- [ ] Milestone 4 Step 2: implement and verify one-time updates.
+- [ ] Milestone 4 Step 3: implement and verify soft deletion.
+- [ ] Milestone 4 Step 4: implement and verify hard deletion.
+- [ ] Milestone 4 Step 5: introduce configurable repeated simulation.
+- [x] Install ClickHouse through Docker Compose and verify authenticated SQL.
+- [ ] Set up the initial PostgreSQL-to-ClickHouse transfer with Airbyte.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -961,6 +970,124 @@ Milestone 3 is complete. Plan the next milestone for ongoing operations, startin
 with one-time current inserts, then updates, soft deletion, hard deletion, and
 finally configurable continuous execution. Keep each implementation separately
 observable and pause for the learner's review.
+
+## 2026-10-25 - Milestone 4 Step 1: current article inserts
+
+### Purpose and changes
+
+The learner requested starting the next step after the October milestone was
+committed as `21306af` (`feat: add seeded October article generation`). Reused
+the existing current-time `insert` command for a small one-time exercise. Added
+`04-ongoing-simulation.md` to explain the operation, command, results, and later
+steps. Updated the roadmap and current checkpoint.
+
+### Verification evidence
+
+- Read-only preflight confirmed 2,513 rows and the reviewed fingerprint
+  `2513:271e9314d55fcf85f605a4622802895e` before insertion.
+- Ran `uv run --locked --cache-dir .cache/uv python scripts/generate_articles.py
+  insert --count 5 --author-id 7` once. All five rows committed; returned IDs were
+  `2556, 2557, 2558, 2559, 2560`.
+- A separate read-only connection found 2,518 rows, with exactly those five IDs
+  added and every previous row fingerprint unchanged.
+- Verified title/content values, author 7, null deletion, and equal creation,
+  publication, and update instants within the execution window. New timestamps
+  span `2026-10-25T02:39:24.900622+00:00` through
+  `2026-10-25T02:39:24.908135+00:00`.
+- Resulting dataset fingerprint:
+  `2518:e3789e5c005e4e354a06dcbb30e31f91`.
+- Database connections required execution outside the agent sandbox. No
+  application, dependency, schema, or test code changed, so maintained tests
+  were not rerun; the latest recorded run passed 21 unit and 9 integration tests.
+- Documentation links/content and whitespace were checked. Existing root file
+  deletions remain untouched; documentation changes are uncommitted.
+
+### Learning note and next checkpoint
+
+Current inserts use the execution time; historical generation supplies dates
+from an earlier interval. Both append rows. Identity gaps from prior tests are
+normal, and repeated demonstration titles do not imply duplicate IDs.
+
+Review the five retained articles. Next implement one explicit-ID update,
+preserving its ID, author, creation, and publication while changing text and
+advancing `updated_at`. No updates, deletions, or continuous loop ran here.
+
+## 2026-10-25 - Scope change: move to ClickHouse
+
+The learner requested moving past source-data exercises and installing
+ClickHouse with minimal changes. Further updates, deletions, and continuous
+simulation are deferred; they are not prerequisites for the installation.
+
+Inspected the existing Compose configuration and checked the official
+[ClickHouse Docker guide](https://clickhouse.com/docs/get-started/setup/self-managed/docker).
+Recorded a minimal installation plan in the roadmap: one additional service,
+environment settings, a named data volume, localhost HTTP access, readiness,
+and a real SQL connection check. No extra Python code or custom server XML is
+planned. Destination tables, data transfer, and CDC remain separate later tasks.
+
+Only tracking documentation changed in this planning step. Local Markdown links
+and whitespace were checked. No container, dependency, environment setting, or
+database was changed, and no runtime tests were run. Pending earlier
+documentation and unrelated root deletions remain uncommitted and untouched.
+
+## 2026-10-25 - Install ClickHouse through Docker Compose
+
+### Changes
+
+- Added one `clickhouse` service to the existing Compose file using the official
+  stable `clickhouse/clickhouse-server:latest` image. Applied the documented
+  open-file limit of 262144 and an authenticated SQL health check.
+- Added ClickHouse settings to `.env.example` and appended local values with a
+  generated password to the ignored `.env`. Existing PostgreSQL settings were
+  preserved; no credentials were printed.
+- Published HTTP at `127.0.0.1:8123`, mounted a new named data volume, and used
+  the container's included native client. No custom XML or dependency was added.
+- Added `05-clickhouse.md` with the official reference and basic commands.
+
+### Verification evidence
+
+- Preflight found no existing project ClickHouse data volume or Docker
+  container publishing port 8123. PostgreSQL was healthy.
+- `docker compose config --quiet` passed; `.env` remains ignored by Git.
+- `docker compose up --detach --no-deps --wait --wait-timeout 120 --quiet-pull
+  clickhouse` pulled the image and completed successfully with a healthy service.
+- Installed version: `26.10.2.103`. Pulled image digest:
+  `clickhouse/clickhouse-server@sha256:b2bfa4d8399ee9973868cc5c1754cb506a6f4b86fbddc41010cc090beb55c85e`.
+- An authenticated HTTP SQL query returned `1`, database `article_analytics`,
+  user `clickhouse_dev`, and zero application tables. The configured native
+  SQL health check also passed.
+- Mount inspection confirmed
+  `article-analytics-pipeline_clickhouse_data -> /var/lib/clickhouse`.
+  Persistence is configured; container recreation was not exercised here.
+- Both services are running and healthy, with HTTP port 8123 and PostgreSQL
+  port 5432 bound to localhost only.
+- PostgreSQL's complete before/after fingerprint matched:
+  `2518:e3789e5c005e4e354a06dcbb30e31f91`. No PostgreSQL data changed.
+- Documentation links and whitespace checks passed. Python tests were not
+  rerun because no Python code changed; runtime installation checks were used.
+
+### Learning note and next action
+
+ClickHouse runs alongside PostgreSQL in Docker, with its own persistent data.
+Installing it does not move any articles. Next set up Airbyte for an initial
+transfer and define destination table handling at that point. No destination
+table, data transfer, CDC, Airbyte, or Airflow was implemented in this step.
+The installation changes remain uncommitted; earlier documentation changes and
+the pre-existing root deletions are preserved.
+
+## 2026-10-25 - Commit ClickHouse checkpoint before Airbyte
+
+The learner requested committing the pending changes and starting minimal
+Airbyte setup. The commit includes Compose, the tracked environment template,
+and the pending source-exercise/ClickHouse documentation. Local credentials
+and the pre-existing root file deletions are excluded.
+
+Docker preflight confirmed PostgreSQL and ClickHouse remain healthy. The
+official Airbyte quickstart uses `abctl`, which manages Kubernetes inside
+Docker. No `abctl` was found on PATH. Docker exposes 12 CPUs and approximately
+8 GB of memory shared with other running services; use low-resource mode for
+this local assessment. This is installation preparation, not a completed
+Airbyte runtime check.
 
 ## How to maintain this log
 

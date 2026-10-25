@@ -4,7 +4,7 @@
 
 **October ingestion reviewed and complete.** The learner requested proceeding
 directly to ingestion after the scope revision. Generation, preview, loader
-checks, and the first 2,500-row load are complete. The table now contains 2,513
+checks, and the first 2,500-row load are complete. At milestone completion the table contained 2,513
 rows, including all 13 original articles unchanged. The historical window starts
 on October 1, 2026, replacing the earlier proposal to start in 2016.
 
