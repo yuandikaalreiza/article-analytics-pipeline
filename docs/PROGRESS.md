@@ -3,12 +3,14 @@
 ## Current state
 
 - **Milestone:** 5 - Pipeline integrations.
-- **Checkpoint:** Initial transfer was observed with 2,518 distinct articles in
-  ClickHouse 26.7.37.6. The learner configured PostgreSQL CDC in Airbyte.
-- **Next step:** Add a duration-based simulator while retaining the configured hourly Airbyte schedule.
-- **Database implementation:** PostgreSQL now has 3,318 articles: 3,217 active
-  and 101 soft-deleted. After the single-row CDC progress probe, job 7 completed
-  with 1,401 committed records; ClickHouse returned 3,318 rows and 101 soft-deleted.
+- **Checkpoint:** Duration-based simulation is implemented and the learner has
+  run it. Airbyte CDC successfully replicated changes to ClickHouse 26.7.37.6.
+- **Next step:** After the learner's simulator stops and a following sync
+  completes, reconcile source/destination rows and latest values.
+- **Database implementation:** Last read-only observation: PostgreSQL had 4,094
+  rows (421 soft-deleted); ClickHouse `FINAL` had 3,849 (321 soft-deleted).
+  Source updates continued after the latest successful sync. These are observed
+  checkpoints, not live counts or evidence of final reconciliation.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
 for completed database work, [the Python insertion guide](02-python-inserts.md)
@@ -57,6 +59,10 @@ records installation settings and connection commands. The
 - [x] Commit and independently verify 300 additional inserts, 1,000 updates,
   and 100 soft deletes in separate existing-row groups.
 - [ ] Verify those 1,300 changes in ClickHouse and confirm the Airbyte sync result.
+- [x] Implement duration-based simulation with configurable operation totals.
+- [x] Verify simulation scheduling, invalid inputs, partial completion, and real SQL.
+- [x] Observe learner-run simulation data and successful Airbyte CDC jobs.
+- [ ] Reconcile the final dataset after generation stops and another sync completes.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -1239,6 +1245,66 @@ Follow-up logs at `11:00:01Z` reported
 `0/22F4C48` exceeded target `0/22E6930`. At `11:00:15Z`, the replication
 summary reported 1,401 records synced and committed and ended replication.
 The probe therefore advanced the CDC read that had been waiting.
+
+## 2026-10-25 - Duration-based article simulation
+
+The learner requested a simple live generator: `simulate --duration 60` runs
+for one hour. Added this subcommand to the existing Python CLI with default
+totals of 60 inserts, 30 updates, and 10 soft deletes, optional count overrides,
+author ID, and random seed. No dependencies, database schema changes, or
+Airbyte scheduling changes were needed.
+
+Operations are spread across the real-time window with random timing/order,
+real UTC timestamps, and a separate short transaction per operation. Active
+rows are randomly selected; repeat edits are allowed. Impossible counts are
+rejected before writes. Ctrl+C reports partial committed totals. Database errors
+stop the run while preserving earlier commits. See the
+[simulation guide](04-ongoing-simulation.md#run-the-real-time-simulation).
+
+Verification:
+
+- 27 unit tests passed (21 existing plus six simulation tests), including a
+  fake-clock check that one minute spans 60 seconds, seeded schedule stability,
+  exact totals, empty-source ordering, invalid inputs, failure, and interruption.
+- 10 PostgreSQL integration tests passed (nine existing plus one lifecycle test).
+  New lifecycle checks exercised real inserts, edits, soft deletes, empty-active
+  handling, and stored-value fingerprint equality after rollback.
+- The original `.venv` executable was blocked by Windows application control
+  (error 4551). Preserved it and used the already-installed CPython 3.13.16
+  through uv in the ignored `.cache/simulation-check-venv` environment.
+  In PowerShell, set `$env:UV_PROJECT_ENVIRONMENT = '.cache/simulation-check-venv'`
+  before `uv run --locked --cache-dir .cache/uv ...` to use that verified runtime.
+- No hour-long run was launched and no simulation changes were committed to the
+  source dataset during implementation. Integration fixtures were rolled back
+  or cleaned up; identity sequence gaps from tests are expected.
+
+Next: learner review and a manual run. A completed generator does not imply a
+completed Airbyte sync; inspect job status and `FINAL` results independently.
+
+## 2026-10-25 - Learner-run simulator and successful CDC syncs
+
+The learner reported running the simulator. Completed workload pods had been
+removed, so read Airbyte's persisted job/attempt statistics without changing
+configuration or triggering another sync. Recent successful jobs were:
+
+| Job | Start (Asia/Jakarta) | Duration (seconds) | Records emitted and committed |
+| --- | --- | --- | --- |
+| 9 | 18:53:46 | 76 | 1,079 |
+| 10 | 19:02:06 | 60 | 312 |
+| 11 | 19:03:07 | 49 | 32 |
+| 12 | 19:08:21 | 54 | 205 |
+| 13 | 21:53:15 | 105 | 1,273 |
+
+Source observation: 4,094 rows, 3,673 active, 421 soft-deleted, and 776 titles
+starting with `[simulation]`. ClickHouse `FINAL`: 3,849 rows, 3,528 active,
+321 soft-deleted, and 526 simulator-created titles. Source's latest update was
+22:12:06 Jakarta, after job 13 ended at approximately 21:55. No sync pod was
+running during the check. Matching emitted/committed counts verify those jobs;
+the source/destination difference still requires final reconciliation.
+
+Implementation and CDC replication are working. The learner's generation run
+and final catch-up verification are separate checkpoints. No service was stopped,
+no data was changed, and no new sync was triggered during this inspection.
 
 ## How to maintain this log
 

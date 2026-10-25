@@ -2,9 +2,10 @@
 
 ## Current checkpoint
 
-**Step 1: one-time current inserts verified; review pending.** Five new articles
-were committed using the existing CLI. The table now contains 2,518 rows.
-All 2,513 previously stored articles, including the October dataset, are unchanged.
+**Duration-based simulation implemented.** The existing CLI now supports live
+inserts, edits, and soft deletions over a requested number of minutes. The
+earlier exercises below are retained as history; see the progress log for the
+latest database counts.
 
 Read [the progress log](PROGRESS.md) for current results and [the roadmap](ROADMAP.md)
 for milestone boundaries. Reuse the [existing Python CLI](02-python-inserts.md)
@@ -92,9 +93,55 @@ WHERE id IN (2556, 2557, 2558, 2559, 2560)
 ORDER BY id;
 ```
 
-## Next checkpoint
+## Run the real-time simulation
 
-Review the five retained rows. Next, implement and verify a one-time update
-command. Use one of these demonstration IDs for the first exercise, preserving
-the historical dataset. Keep soft deletion, hard deletion, and intervals as
-separate later steps. No update, deletion, or continuous loop ran in Step 1.
+From the repository root in PowerShell:
+
+```powershell
+uv run --locked python scripts/generate_articles.py simulate --duration 60
+```
+
+`--duration` is in **minutes**: 60 means one hour. By default, the command
+performs 60 inserts, 30 updates, and 10 soft deletes across that hour. These
+are totals for the entire run, not per-minute counts. Override them when needed:
+
+```powershell
+uv run --locked python scripts/generate_articles.py simulate --duration 60 --inserts 300 --updates 1000 --soft-deletes 100 --seed 42
+```
+
+- Operations occur in random order at jittered times distributed across the
+  duration. The process remains running until the duration ends. A slow database
+  can cause an overrun while it finishes the requested counts.
+- Each operation uses its own transaction, committed before its ID and timestamp
+  are printed. No database transaction is held open during a scheduling wait.
+- Timestamps are actual aware UTC instants, not fabricated historical dates.
+  New articles have equal creation, publication, and update times; edits advance
+  `updated_at`; soft deletes set `deleted_at` and `updated_at` to the same instant.
+  Timestamps need not be globally unique.
+- Edits randomly select active articles, including existing historical articles
+  and newly inserted rows. The same article can be edited more than once.
+  Deleted rows are excluded. Updates and deletes preserve creation/publication.
+- Counts can be zero, but the combined count must be positive. Impossible requests
+  fail before writes. When starting empty, inserts precede operations needing a row.
+- Ctrl+C stops gracefully with exit code 130 and prints completed and remaining
+  counts. Database failures stop the run and roll back the current transaction;
+  earlier commits remain. There is no automatic resume or retry.
+- An optional seed repeats random scheduling, text, and target choices under the
+  same starting rows and execution conditions. Actual wall-clock timestamps vary.
+- Active-row selection uses a count and a random ordered offset. This is simple
+  for this assessment dataset; it is not designed as a high-throughput load tool.
+  Use one simulator at a time for predictable counts and target selection.
+
+Airbyte keeps its separately configured hourly CDC schedule. The generator
+does not trigger syncs or keep writing after its duration to advance CDC.
+The earlier idle-source wait can still occur after generation stops.
+
+For a short manual exercise, `--duration 0.1 --inserts 3 --updates 2
+--soft-deletes 1` runs for six seconds. It changes real source data.
+Afterward, inspect printed IDs and compare PostgreSQL with ClickHouse using
+`FINAL` after a completed Airbyte sync. Updates count operations, not distinct IDs;
+soft-deleted articles remain present, and active queries use `deleted_at IS NULL`.
+
+The implementation was checked with unit scheduling tests using a fake clock
+and real PostgreSQL lifecycle operations inside rolled-back transactions.
+No hour-long simulator was started during implementation.

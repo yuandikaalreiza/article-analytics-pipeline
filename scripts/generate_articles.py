@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import math
 import os
 import random
 import time
@@ -348,6 +349,180 @@ def insert_in_batches(
     return count
 
 
+def nonnegative_int(value: str) -> int:
+    """Parse an operation count.
+
+    Args:
+        value: Command-line count.
+
+    Returns:
+        An integer greater than or equal to zero.
+
+    Raises:
+        argparse.ArgumentTypeError: If the count is invalid.
+    """
+    try:
+        number = int(value)
+        if number >= 0:
+            return number
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError("must be a nonnegative integer")
+
+
+def duration_minutes(value: str) -> float:
+    """Parse a finite, positive duration in minutes.
+
+    Args:
+        value: Command-line duration.
+
+    Returns:
+        Duration in minutes, including fractional minutes for short exercises.
+
+    Raises:
+        argparse.ArgumentTypeError: If the duration is invalid.
+    """
+    try:
+        minutes = float(value)
+        if math.isfinite(minutes) and minutes > 0 and math.isfinite(minutes * 60):
+            return minutes
+    except ValueError:
+        pass
+    raise argparse.ArgumentTypeError("must be a finite positive number of minutes")
+
+
+def simulate_operation(
+    connection: psycopg.Connection, rng: random.Random, operation: str,
+    author_id: int, number: int,
+) -> tuple[int, datetime]:
+    """Perform one lifecycle operation in the caller's transaction.
+
+    Args:
+        connection: Open database connection.
+        rng: Random generator used for synthetic article text.
+        operation: insert, update, or soft_delete.
+        author_id: Author for new articles.
+        number: Sequence number for a new article.
+
+    Returns:
+        Affected article ID and its update timestamp.
+
+    Raises:
+        RuntimeError: If no active article is available.
+        ValueError: If the operation is unknown.
+        psycopg.Error: If the database rejects the operation.
+    """
+    if operation == "insert":
+        article = make_article(number, author_id)
+        city = rng.choice(("Jakarta", "Bandung", "Surabaya", "Yogyakarta"))
+        topic = rng.choice(("Community", "Technology", "Business", "Culture", "Sports"))
+        article["title"] = f"[simulation] {topic} developments in {city} #{number}"
+        article["content"] = (
+            f"Synthetic report: {topic} developments in {city}. "
+            "Residents and local organizations discuss recent changes and upcoming activities. "
+            "This article was generated for local pipeline testing."
+        )
+        article_id = insert_articles(connection, [article])[0]
+        return article_id, article["updated_at"]
+
+    if operation not in ("update", "soft_delete"):
+        raise ValueError("Unknown simulation operation")
+    active_count = connection.execute(
+        "SELECT count(*) FROM public.articles WHERE deleted_at IS NULL"
+    ).fetchone()[0]
+    if not active_count:
+        raise RuntimeError("No active article available for simulation.")
+    target = connection.execute(
+        "SELECT id, updated_at FROM public.articles WHERE deleted_at IS NULL "
+        "ORDER BY id OFFSET %s LIMIT 1 FOR UPDATE", (rng.randrange(active_count),),
+    ).fetchone()
+    if target is None:
+        raise RuntimeError("No active article available for simulation.")
+    if operation == "update":
+        result = connection.execute(
+            "UPDATE public.articles SET title = title || ' [revised]', "
+            "content = content || E'\\nEditorial update: new context added for local simulation.', "
+            "updated_at = greatest(clock_timestamp(), updated_at + interval '1 microsecond') "
+            "WHERE id = %s RETURNING id, updated_at", (target[0],),
+        ).fetchone()
+    else:
+        deleted_at = max(datetime.now(timezone.utc), target[1] + timedelta(microseconds=1))
+        result = connection.execute(
+            "UPDATE public.articles SET deleted_at = %s, updated_at = %s "
+            "WHERE id = %s RETURNING id, updated_at", (deleted_at, deleted_at, target[0]),
+        ).fetchone()
+    return result
+
+
+def wait_until(deadline: float) -> None:
+    """Wait until a monotonic deadline in interruptible chunks.
+
+    Args:
+        deadline: Target from time.monotonic().
+    """
+    while (remaining := deadline - time.monotonic()) > 0:
+        time.sleep(min(remaining, 1.0))
+
+
+def simulate(settings: dict[str, str | int], args: argparse.Namespace) -> int:
+    """Spread requested operations across a real-time window and commit each.
+
+    Args:
+        settings: Configured PostgreSQL connection parameters.
+        args: Parsed simulation options; duration is in minutes.
+
+    Returns:
+        Zero after completion, or 130 after a graceful keyboard interruption.
+
+    Raises:
+        RuntimeError: If requested operations cannot use the available articles.
+        psycopg.Error: If a database operation fails; prior commits remain.
+    """
+    rng = random.Random(args.seed)
+    remaining = {"insert": args.inserts, "update": args.updates, "soft_delete": args.soft_deletes}
+    completed = dict.fromkeys(remaining, 0)
+    total = sum(remaining.values())
+    seconds = args.duration * 60
+    started = time.monotonic()
+    try:
+        with psycopg.connect(**settings, connect_timeout=5, autocommit=True) as connection:
+            active = connection.execute(
+                "SELECT count(*) FROM public.articles WHERE deleted_at IS NULL"
+            ).fetchone()[0]
+            if remaining["soft_delete"] > active + remaining["insert"]:
+                raise RuntimeError("Not enough active articles for the requested soft deletes.")
+            if remaining["update"] and not active + remaining["insert"]:
+                raise RuntimeError("Updates require an active article or a requested insert.")
+            print(f"Simulating for {args.duration:g} minutes: {remaining}", flush=True)
+            started = time.monotonic()
+            for index in range(total):
+                wait_until(started + (index + rng.random()) * seconds / total)
+                eligible = [op for op, count in remaining.items() if count and (op == "insert" or active)]
+                # Keep one active article while edits still need a target.
+                if active == 1 and remaining["update"] and not remaining["insert"]:
+                    eligible = [op for op in eligible if op != "soft_delete"]
+                operation = rng.choices(eligible, weights=[remaining[op] for op in eligible], k=1)[0]
+                with connection.transaction():
+                    connection.execute("SET LOCAL lock_timeout = '5s'")
+                    connection.execute("SET LOCAL statement_timeout = '10s'")
+                    article_id, timestamp = simulate_operation(
+                        connection, rng, operation, args.author_id, completed["insert"] + 1,
+                    )
+                completed[operation] += 1
+                remaining[operation] -= 1
+                active += (operation == "insert") - (operation == "soft_delete")
+                print(f"{timestamp.isoformat()} {operation} id={article_id}", flush=True)
+            wait_until(started + seconds)
+        print("Simulation completed.", flush=True)
+        return 0
+    except KeyboardInterrupt:
+        print("Simulation stopped; completed operations remain committed.", flush=True)
+        return 130
+    finally:
+        print(f"Completed: {completed}; remaining: {remaining}", flush=True)
+        print(f"Elapsed seconds: {time.monotonic() - started:.3f}", flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the article database command-line interface.
 
@@ -379,7 +554,16 @@ def main(argv: list[str] | None = None) -> int:
     historical_command.add_argument("--author-id", type=positive_int, default=1)
     historical_command.add_argument("--batch-size", type=positive_int, default=500)
     historical_command.add_argument("--preview", action="store_true", help="Generate without database access.")
+    simulation_command = commands.add_parser("simulate", help="Simulate live article changes.")
+    simulation_command.add_argument("--duration", type=duration_minutes, required=True, help="Run duration in minutes; 60 means one hour.")
+    simulation_command.add_argument("--inserts", type=nonnegative_int, default=60)
+    simulation_command.add_argument("--updates", type=nonnegative_int, default=30)
+    simulation_command.add_argument("--soft-deletes", type=nonnegative_int, default=10)
+    simulation_command.add_argument("--author-id", type=positive_int, default=1)
+    simulation_command.add_argument("--seed", type=int)
     args = parser.parse_args(argv)
+    if args.command == "simulate" and not (args.inserts + args.updates + args.soft_deletes):
+        parser.error("simulate requires at least one operation")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     started = time.monotonic()
@@ -404,7 +588,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        if args.command == "check":
+        if args.command == "simulate":
+            return simulate(settings, args)
+        elif args.command == "check":
             result = check_database(settings)
         elif args.command == "insert":
             articles = (
@@ -419,7 +605,10 @@ def main(argv: list[str] | None = None) -> int:
     except psycopg.OperationalError:
         logging.error("Database connection failed. Check PostgreSQL and connection settings.")
         return 1
-    except (psycopg.Error, RuntimeError):
+    except RuntimeError as error:
+        logging.error("%s", error)
+        return 1
+    except psycopg.Error:
         logging.error("Database operation failed. Check schema, permissions, and article values.")
         return 1
 
