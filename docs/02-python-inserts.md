@@ -2,10 +2,10 @@
 
 ## Current checkpoint
 
-**Step 4: small article insertion command implemented and verified; review pending.**
-The CLI can check readiness and insert a requested number of demonstration
-articles. Six generated articles were added while preserving the two existing
-practice rows. Step 5 will add the formal validation and integration test suites.
+**Milestone 2 reviewed and complete.** The CLI's unit
+and real PostgreSQL integration suites are implemented. All 21 tests passed.
+The source database contained 13 articles before this step, and all 13 were
+preserved after fixture cleanup. Planning historical generation is the next step.
 
 Read [the roadmap](ROADMAP.md) for milestone boundaries and [the progress log](PROGRESS.md)
 for actual completion evidence. The [PostgreSQL guide](01-postgresql.md) remains
@@ -45,8 +45,8 @@ Python-to-PostgreSQL connectivity and the unchanged article data.
 | 4. Insert a few articles | Add the `insert` subcommand in that same script. | A small run returns generated IDs after committing; SQL confirms exactly those new rows. |
 | 5. Verify and explain | Add targeted tests and record success/failure cases. | Argument, configuration, timestamp, transaction, and integration checks pass; existing rows are unchanged. |
 
-Complete and review each step separately. Steps 1 through 4 are complete;
-Step 5 is next.
+Steps 1 through 5 are complete and reviewed. Plan the next generator capability
+before implementing it.
 
 ## Dependencies and file layout
 
@@ -341,6 +341,87 @@ point so importing helpers for unit tests does not connect or write data.
 variable. See its [configuration documentation](https://bbc2.github.io/python-dotenv/).
 
 ## Verification and acceptance
+
+### Step 5: maintained test commands
+
+Run the following from the repository root. Unit tests do not require PostgreSQL:
+
+```powershell
+uv run --locked python -m unittest discover -s tests/unit -v
+```
+
+The separately invoked database suite requires the local service and schema:
+
+```powershell
+uv run --locked python scripts/generate_articles.py check
+uv run --locked python -m unittest discover -s tests/integration -v
+```
+
+Agent verification additionally passed `--cache-dir .cache/uv` to keep cache
+access inside the workspace. Database tests ran outside the agent sandbox to
+allow local socket access. The earlier interpreter-cache limitation recorded
+during docstring work did not recur with that cache selection; the current
+application source also passed Python AST parsing.
+
+Tests use standard-library `unittest`; no new test dependency was added.
+The explicit discovery directories keep unit checks and database operations
+separate.
+
+| Suite | Source | Verified result |
+| --- | --- | --- |
+| Unit | [test_generate_articles.py](../tests/unit/test_generate_articles.py) | 15 tests passed in about 0.08 seconds. |
+| PostgreSQL integration | [test_postgres.py](../tests/integration/test_postgres.py) | 6 tests passed in about 5.71 seconds; zero skips. |
+
+Unit coverage includes required environment values, dotenv precedence, port
+boundaries, placeholder passwords, safe settings/read errors, invalid CLI
+arguments, help without credentials, coherent UTC timestamps, safe connection
+errors, missing-table reporting, suppressed success output on commit failure,
+and import safety. Table-driven subtests exercise multiple invalid inputs within
+these 15 test methods.
+
+Integration coverage uses real PostgreSQL connections and the actual SQL helpers:
+
+- Read-only connection facts and successful CLI check output.
+- A committed two-article CLI run, inspected from a separate connection, with
+  generated IDs, quotes/percent signs in content, and timestamp round-trips.
+- Successful insertion followed by the caller's explicit rollback, proving the
+  helper does not commit on its own.
+- A valid first article followed by an invalid author, proving full rollback.
+- A real unreachable-port failure with safe logs and bounded connection time.
+- Missing-table reporting against the built-in `postgres` maintenance database,
+  without removing or creating tables.
+
+The commit test labels generated articles through the factory boundary; the
+driver, insertion helper, transaction, and database constraints remain real.
+Unit mocks are limited to configuration and CLI/error boundaries where external
+effects are intentionally excluded.
+
+### Fixture ownership and retained data
+
+Run database checks against the local development setup without another writer
+changing it during verification. Each test captures the existing row fingerprints
+and assigns fixture titles a unique UUID marker. Cleanup deletes only the exact
+titles registered for that test, then compares the database with its original
+snapshot. It does not truncate tables, reset identities, delete volumes, or
+remove prior articles. Assertions check rollback before cleanup so cleanup cannot
+hide a partial-commit defect.
+
+The missing-table test assumes the normal local development user can connect to
+the built-in `postgres` database. If that database already contains an articles
+table, the test explicitly skips rather than removing someone else's table.
+Other setup failures fail with an actionable database-readiness message.
+
+Preflight found 13 articles, reflecting additional rows since the earlier
+eight-row checkpoint. The independently captured pre/post snapshot was identical:
+`13:b7f6c71af709ffc086be6baf6a4bdbaf`. No fixture rows remain. Inserting, rolling
+back, and deleting fixtures can advance the identity sequence; gaps are normal.
+
+**Review checkpoint:** milestone 2's implemented behavior and tests have been
+reviewed. The next milestone will plan historical timestamps, realistic dummy
+text, reproducibility, and efficient batching; those features are not implemented
+in this step.
+
+### Acceptance checklist
 
 - Step 2: verify imports and the lockfile without replacing the existing
   environment or upgrading unrelated packages.

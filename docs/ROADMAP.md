@@ -16,7 +16,7 @@ verify its result, and review it before continuing.
 | Milestone | Learning goal | Completion evidence | Status |
 | --- | --- | --- | --- |
 | 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Reviewed and committed |
-| 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Step 4 inserts verified; formal test suites pending |
+| 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Reviewed and complete; 21 tests passed |
 | 3. Historical data generation | Generate realistic articles from 2016 onward using seeds and batches. | Configurable counts, coherent timestamps, and measured batch performance. | Deferred |
 | 4. Ongoing data simulation | Perform inserts, updates, soft deletes, and hard deletes from Python. | Verified operations, configurable counts and intervals, and useful failure logs. | Deferred |
 | 5. Pipeline integrations | Introduce Airbyte, ClickHouse, then Airflow as separate learning milestones. | Define acceptance criteria when each integration becomes active. | Deferred |

@@ -3,12 +3,10 @@
 ## Current state
 
 - **Milestone:** 2 - Basic Python inserts.
-- **Checkpoint:** Milestone 2 Step 4 small article insertions implemented and
-  verified; awaiting review.
-- **Next step:** Milestone 2 Step 5 - add maintained unit/integration tests for
-  argument, configuration, and transaction behavior.
-- **Database implementation:** PostgreSQL is healthy with eight articles: the
-  two original SQL practice rows and six active Python demonstration rows.
+- **Checkpoint:** Milestone 2 reviewed and complete; all 21 maintained tests passed.
+- **Next step:** Plan milestone 3's historical data generator before implementing it.
+- **Database implementation:** PostgreSQL is healthy with 13 existing articles.
+  All existing values were preserved and integration fixtures were removed.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
 for completed database work, and [the Python insertion guide](02-python-inserts.md)
@@ -30,7 +28,8 @@ for the active milestone's design and acceptance checks.
 - [x] Milestone 2 Step 2: declare dependencies, lock them, and verify imports.
 - [x] Milestone 2 Step 3: implement and verify the read-only connection command.
 - [x] Milestone 2 Step 4: implement and verify small article insertions.
-- [ ] Milestone 2 Step 5: verify argument, configuration, and transaction behavior.
+- [x] Milestone 2 Step 5: verify argument, configuration, and transaction behavior.
+- [x] Review milestone 2 before planning historical generation.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -735,6 +734,106 @@ active CLI source.
 
 Review the docstring format, then continue with the existing Step 4 review.
 After approval, proceed to Milestone 2 Step 5.
+
+## 2026-10-24 - Milestone 2 Step 5: maintained test suites
+
+### Purpose
+
+Turn the CLI's manual checks into repeatable unit and PostgreSQL integration
+tests while preserving the learner's existing dataset.
+
+### Changes
+
+- Added `tests/unit/test_generate_articles.py` for configuration, argument,
+  timestamp, CLI output/error, and import behavior without PostgreSQL.
+- Added `tests/integration/test_postgres.py` for real transactions, persistence
+  after commit, read-only checks, and database failure behavior.
+- Kept the suites explicitly invoked through separate discovery directories.
+  Used standard-library unittest with no dependency changes.
+- Used unique fixture titles and exact-title cleanup; compared each test's
+  final dataset with its original row fingerprints.
+- Followed the current Google-style docstring convention and left the existing
+  application implementation and its docstrings intact.
+- Updated the Python guide with maintained test commands and verified results.
+
+### Verification evidence
+
+- Preflight source parsing passed using uv and the project cache, resolving
+  the previously recorded inability to validate the newer docstrings.
+- PostgreSQL was healthy. The preflight dataset contained 13 articles rather
+  than the 8 recorded at the earlier checkpoint; captured the actual current
+  contents before running any fixture operations.
+- `uv run --locked ... python -m unittest discover -s tests/unit -v` passed all
+  15 unit tests. Subtests cover missing/blank settings, invalid counts/authors,
+  invalid ports and boundaries, and safe dotenv read failures.
+- `uv run --locked ... python -m unittest discover -s tests/integration -v`
+  passed all 6 integration tests with zero skips in about 5.71 seconds.
+- Real tests verified committed CLI inserts through another connection,
+  quoted-text/timestamp round-trips, caller-owned rollback, failed-second-row
+  rollback, enforced read-only mode, unreachable connection handling, and
+  missing-table reporting without schema changes.
+- Fixture cleanup preserved all original rows. An independent SQL comparison
+  matched the complete pre/post snapshot:
+  `13:b7f6c71af709ffc086be6baf6a4bdbaf`.
+- No table truncation, identity reset, volume deletion, application-code change,
+  or dependency addition was performed. Test inserts may consume identity values.
+
+### Learning notes
+
+- Unit tests isolate configuration and CLI boundaries; integration tests prove
+  behavior against real PostgreSQL constraints and transactions.
+- A committed insertion, an explicit caller rollback, and a failed batch are
+  different transaction outcomes and each has its own maintained check.
+- Fixture cleanup runs even when an assertion fails. Rollback is checked before
+  cleanup so deleting a fixture cannot conceal a partial commit.
+- Live state must be inspected rather than inferred from a historical row count.
+
+### Next action and checkpoint
+
+Review the completed basic Python insertion milestone and its tests. After
+review, plan the next milestone for historical article data, configurable
+counts/seeds, realistic text, and batch efficiency. Historical generation,
+continuous simulation, and downstream services remain deferred. These test and
+documentation changes remain uncommitted for review.
+
+## 2026-10-25 - Resume and reverify Milestone 2 Step 5
+
+### Purpose
+
+Confirm the saved testing checkpoint after the session reset before advancing.
+
+### Verification evidence
+
+- PostgreSQL remained running and healthy; no service restart was required.
+- `uv run --locked --cache-dir .cache/uv python -m unittest discover -s tests/unit -v`
+  passed all 15 tests in 0.138 seconds.
+- `uv run --locked --cache-dir .cache/uv python -m unittest discover -s tests/integration -v`
+  passed all 6 tests in 5.824 seconds with zero skips. Local database access
+  required execution outside the agent sandbox.
+- Independent read-only SQL snapshots before and after the database suite both
+  returned `13:b7f6c71af709ffc086be6baf6a4bdbaf`, matching the previous checkpoint.
+  All 13 existing articles were preserved; test fixtures were removed.
+- No application, dependency, configuration, or schema changes were needed.
+  The pre-existing root file deletions remain untouched.
+
+### Learning notes and next action
+
+Saved progress identifies where to resume; fresh checks establish current
+behavior. Step 5 is complete and its test/documentation changes remain
+uncommitted for review. Review milestone 2 before planning historical generation.
+
+## 2026-10-25 - Milestone 2 review and commit
+
+The learner approved the completed tests and requested a Conventional Commit.
+The commit includes the two test suites and their tracking documentation.
+The pre-existing `README.md` and `.gitattributes` deletions are excluded.
+The latest verification remains 15 unit tests and 6 integration tests passed,
+with all 13 existing articles preserved. No further runtime changes were made.
+
+Milestone 2 is reviewed and complete. The next learning step is to document
+milestone 3's historical generation design: date range, reproducible seeds,
+realistic article text, configurable counts, batching, and transaction behavior.
+Implementation will follow review of that plan.
 
 ## How to maintain this log
 
