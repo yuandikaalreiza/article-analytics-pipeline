@@ -48,8 +48,9 @@ SELECT version(), currentDatabase(), currentUser();
 SHOW TABLES;
 ```
 
-Airbyte now creates and maintains `article_analytics.articles`. Query it using
-`FINAL` when checking deduplicated results.
+Airbyte creates and maintains `article_analytics.articles`. Use
+`article_analytics.articles_current` for the source's current rows after applying
+the view below. Use the underlying `articles FINAL` when inspecting CDC metadata.
 
 To stop only ClickHouse while retaining its data:
 
@@ -67,3 +68,41 @@ responses caused an LZ4 decoding error, and a response-format override caused
 schema parsing to fail. LZ4 alone fixed only the first error. Pinning 26.7
 with a fresh volume resolved the schema failure; the previous volume was kept
 instead of opening newer database files with an older server.
+
+## Current articles view
+
+Airbyte delivers PostgreSQL hard deletes as rows with `_ab_cdc_deleted_at`
+populated. The existing `ReplacingMergeTree` keeps the latest version per ID;
+`FINAL` alone does not remove those deletion markers.
+
+[003_clickhouse_articles_current.sql](../sql/003_clickhouse_articles_current.sql)
+defines a normal view: first read the latest article versions with `FINAL`, then
+exclude hard-delete markers. It exposes the original eight article columns.
+Application soft deletes remain present with `deleted_at` populated, matching
+PostgreSQL. For active articles, additionally filter `deleted_at IS NULL`.
+
+Apply after Airbyte has created the underlying `articles` table. From the
+repository root in PowerShell:
+
+```powershell
+Get-Content -Raw sql/003_clickhouse_articles_current.sql | docker compose exec -T clickhouse sh -c 'exec clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --database "$CLICKHOUSE_DB" --multiquery'
+```
+
+The SQL uses the configured database selected by the client. Reapplying replaces
+only the view definition; it preserves all underlying article rows.
+
+```sql
+SELECT * FROM article_analytics.articles_current WHERE id = 1398;
+SELECT count(*) FROM article_analytics.articles_current;
+SELECT count(*) FROM article_analytics.articles_current WHERE deleted_at IS NOT NULL;
+```
+
+After ID 1398's hard-delete event is synced, the first query should return no
+rows. The view reads newly synced data on every query without a refresh job or
+duplicated storage. It retains the underlying CDC data; it does not physically
+delete it. Airbyte continues writing to `articles`, not to the view.
+
+The `FINAL` operation adds read work, especially for broad queries over a growing
+table. Benchmark realistic queries and design retention separately before
+claiming production-scale performance. A normal view provides logical
+current-state equality with PostgreSQL after sync; raw-table row counts can differ.

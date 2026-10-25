@@ -5,11 +5,12 @@
 - **Milestone:** 5 - Pipeline integrations.
 - **Checkpoint:** Duration-based simulation is implemented and the learner has
   run it. Airbyte CDC successfully replicated changes to ClickHouse 26.7.37.6.
-- **Next step:** After a successful Airbyte sync, verify destination deletion
-  handling for article ID 1398, then complete source/destination reconciliation.
-- **Database implementation:** PostgreSQL had 4,227 rows before the authorized
-  single hard delete and 4,226 afterward. ID 1398 existed in ClickHouse before
-  deletion and remained visible immediately afterward; CDC verification is pending.
+- **Next step:** Review the current-state view and verify it after subsequent
+  hourly syncs. Physical cleanup and table-engine migration remain separate work.
+- **Database implementation:** The `articles_current` view is created. PostgreSQL
+  and the view both returned 4,227 rows: 3,742 active and 485 soft-deleted.
+  ID 1398 and all six synced hard-delete markers were absent from the view.
+  The underlying Airbyte table retains those markers.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
 for completed database work, [the Python insertion guide](02-python-inserts.md)
@@ -63,7 +64,10 @@ records installation settings and connection commands. The
 - [x] Observe learner-run simulation data and successful Airbyte CDC jobs.
 - [ ] Reconcile the final dataset after generation stops and another sync completes.
 - [x] Add optional `--hard-deletes` and verify one committed source deletion.
+- [x] Confirm ID 1398's deletion event reached ClickHouse after successful job 15.
 - [ ] Verify hard-deleted ID 1398 is removed from current destination results after sync.
+- [x] Create `articles_current`; verify ID 1398 and all hard-delete markers are excluded.
+- [x] Compare source/view total, active, and soft-deleted counts at this checkpoint.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -1337,6 +1341,51 @@ Next: inspect ID 1398 after the next successful Airbyte sync, including
 `_ab_cdc_deleted_at` if a tombstone remains. This step verifies source deletion,
 not yet end-to-end deletion semantics. The learner subsequently requested a
 separate Conventional Commit for this extension and its verification notes.
+
+## 2026-10-25 - Hard-delete event received; tombstone retained
+
+Read-only verification after job 15 succeeded (14 records committed; ended
+`2026-10-25T15:39:53.630825Z`) found no ID 1398 in PostgreSQL. ClickHouse
+`articles FINAL` still returned that ID with application `deleted_at = NULL`
+and `_ab_cdc_deleted_at = 2026-10-25T15:29:41.845000Z`.
+
+The engine is `ReplacingMergeTree(_airbyte_extracted_at)` without an engine
+deletion flag. The CDC delete was captured and delivered, but the latest row
+is retained as a deletion tombstone. `FINAL` alone does not hide it. A read-only
+query adding `_ab_cdc_deleted_at IS NULL` returned no ID 1398.
+
+No destination row, table, or view was modified. Next decide and implement the
+current-state destination representation; physical base-table deletion has not
+been achieved merely by successful CDC delivery.
+
+## 2026-10-25 - Create the current-state ClickHouse view
+
+Added `sql/003_clickhouse_articles_current.sql`, defining a normal, replaceable
+view over `articles FINAL` with `_ab_cdc_deleted_at IS NULL`. It exposes the
+original eight columns and retains application soft deletes. The view stores
+no copied rows and reads newly ingested data whenever queried. Updated the
+[ClickHouse guide](05-clickhouse.md#current-articles-view) with application and
+verification commands.
+
+Docker Desktop was stopped at the start of this step. Started the existing
+installation in the background, waited for the engine, and verified the existing
+ClickHouse service healthy without resetting volumes. The underlying table
+returned 4,233 latest rows, including six hard-delete markers. Created the view
+in the configured database via the container client; ClickHouse reports `View`.
+
+Observed integration results:
+
+- View: 4,227 rows and 4,227 distinct IDs; 3,742 active, 485 soft-deleted.
+- PostgreSQL: 4,227 rows; 3,742 active, 485 soft-deleted.
+- View query for ID 1398: zero rows.
+- View intersection with all six hard-delete marker IDs: zero rows.
+
+No source rows or underlying destination rows were changed. Counts match at
+this checkpoint; this alone does not prove equality of every column value.
+The learner then asked about `ReplacingMergeTree(version, is_deleted)`;
+explained that this separate engine configuration can hide delete-marked rows
+with `FINAL`, while physical removal still requires cleanup. The current engine
+was not changed. Next review and check after subsequent scheduled ingestion.
 
 ## How to maintain this log
 

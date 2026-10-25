@@ -22,7 +22,7 @@ verify its result, and review it before continuing.
 | 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Reviewed and committed |
 | 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Reviewed and complete; 21 tests passed |
 | 3. Historical data generation | Start with 2,500 synthetic articles from October 1, 2026, through a fixed October cutoff; use seeds and bounded batches. | Verified counts, coherent timestamps, reproducibility, and observed load time. | Reviewed and complete: 2,500 added, 2,513 total |
-| 4. Ongoing data simulation | Simulate article changes over a duration in minutes. | Configurable inserts, updates, soft/hard deletes, per-operation commits, and useful logs. | Implemented and tested; one committed hard delete verified in source; destination deletion check pending |
+| 4. Ongoing data simulation | Simulate article changes over a duration in minutes. | Configurable inserts, updates, soft/hard deletes, per-operation commits, and useful logs. | Implemented and tested; committed hard delete excluded from destination current-state view |
 | 5. Pipeline integrations | Install ClickHouse first, then connect the pipeline with Airbyte; introduce Airflow later. | Verified initial transfer and later CDC syncs to ClickHouse. | CDC replication verified; final reconciliation after generation stops remains pending; Airflow deferred |
 
 ## ClickHouse installation: complete
