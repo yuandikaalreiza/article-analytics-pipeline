@@ -207,6 +207,100 @@ class ArticleUnitTests(unittest.TestCase):
         dotenv.assert_not_called()
         connect.assert_not_called()
 
+    def test_historical_values_are_reproducible_and_seeded(self):
+        """Keep fixed-input values stable and vary them with a different seed."""
+        start = cli.start_date("2026-10-01")
+        until = cli.utc_timestamp("2026-10-25T00:00:00Z")
+        first = list(cli.historical_articles(300, start, until, 42, 7))
+        self.assertEqual(first, list(cli.historical_articles(300, start, until, 42, 7)))
+        self.assertNotEqual(first, list(cli.historical_articles(300, start, until, 43, 7)))
+        self.assertEqual(len(first), 300)
+        self.assertGreater(len({row["published_at"].date() for row in first}), 1)
+        for row in first:
+            self.assertLessEqual(start, row["created_at"])
+            self.assertLessEqual(row["created_at"], row["published_at"])
+            self.assertLess(row["published_at"], until)
+            self.assertEqual(row["published_at"], row["updated_at"])
+            self.assertLessEqual(row["published_at"] - row["created_at"], timedelta(hours=6))
+            self.assertEqual(row["published_at"].utcoffset(), timedelta(0))
+            self.assertIsNone(row["deleted_at"])
+            self.assertEqual(row["author_id"], 7)
+            self.assertIn("DATA SINTETIS", row["content"])
+            self.assertTrue(row["title"])
+
+    def test_historical_short_interval_respects_exclusive_cutoff(self):
+        """Generate within even a one-microsecond publication interval."""
+        start = cli.start_date("2026-10-01")
+        rows = list(cli.historical_articles(3, start, start + timedelta(microseconds=1), 1, 1))
+        for row in rows:
+            self.assertEqual(row["created_at"], start)
+            self.assertEqual(row["published_at"], start)
+
+    def test_historical_preview_never_loads_settings_or_connects(self):
+        """Show a bounded preview while counting the full generated stream."""
+        output = io.StringIO()
+        with (
+            patch.object(cli, "load_settings") as settings,
+            patch.object(cli.psycopg, "connect") as connect,
+            contextlib.redirect_stdout(output),
+        ):
+            result = cli.main([
+                "historical", "--count", "20", "--start-date", "2026-10-01",
+                "--until", "2026-10-02T00:00:00Z", "--seed", "42", "--preview",
+            ])
+        self.assertEqual(result, 0)
+        self.assertIn("Preview articles: 20", output.getvalue())
+        self.assertEqual(output.getvalue().count("Sample "), 3)
+        settings.assert_not_called()
+        connect.assert_not_called()
+
+    def test_invalid_historical_inputs_fail_before_external_work(self):
+        """Reject invalid ranges, timezone omissions, counts, authors, and batches."""
+        base = ["historical", "--count", "3", "--start-date", "2026-10-01",
+                "--until", "2026-10-02T00:00:00Z"]
+        cases = (
+            ("--count", "0"), ("--batch-size", "0"), ("--author-id", "-1"),
+            ("--until", "2026-10-01T00:00:00Z"),
+            ("--until", "2026-09-30T00:00:00Z"),
+            ("--until", "2999-10-02T00:00:00Z"),
+            ("--until", "2026-10-02T00:00:00"),
+            ("--start-date", "invalid"), ("--seed", "invalid"),
+        )
+        for option, value in cases:
+            with (
+                self.subTest(option=option, value=value),
+                patch.object(cli, "load_settings") as settings,
+                patch.object(cli.psycopg, "connect") as connect,
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                with self.assertRaises(SystemExit) as raised:
+                    cli.main([*base, option, value])
+                self.assertEqual(raised.exception.code, 2)
+                settings.assert_not_called()
+                connect.assert_not_called()
+
+    def test_historical_cutoff_normalizes_explicit_offsets(self):
+        """Treat equivalent timezone-aware timestamps as the same cutoff."""
+        self.assertEqual(cli.utc_timestamp("2026-10-02T07:00:00+07:00"),
+                         cli.utc_timestamp("2026-10-02T00:00:00Z"))
+
+    def test_historical_commit_failure_does_not_report_success(self):
+        """Suppress the final inserted summary when committing fails."""
+        output = io.StringIO()
+        with (
+            patch.object(cli.psycopg, "connect") as connect,
+            patch.object(cli, "insert_in_batches", return_value=3),
+            self.assertLogs(level="ERROR"),
+            contextlib.redirect_stdout(output),
+        ):
+            connect.return_value.__exit__.side_effect = cli.psycopg.OperationalError("private detail")
+            result = cli.main([
+                "historical", "--count", "3", "--start-date", "2026-10-01",
+                "--until", "2026-10-02T00:00:00Z", "--seed", "42",
+            ])
+        self.assertEqual(result, 1)
+        self.assertNotIn("Inserted historical articles:", output.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

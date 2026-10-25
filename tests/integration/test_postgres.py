@@ -197,6 +197,83 @@ class PostgresIntegrationTests(unittest.TestCase):
         self.assertIn("public.articles is missing", "\n".join(logs.output))
         self.assertEqual(output.getvalue(), "")
 
+    def test_historical_cli_commits_across_batches(self):
+        """Round-trip seeded data across full and partial batches via the CLI."""
+        original_factory = cli.historical_articles
+        expected = list(original_factory(
+            3, cli.start_date("2026-10-01"), cli.utc_timestamp("2026-10-02T00:00:00Z"), 42, 7,
+        ))
+        for number, row in enumerate(expected):
+            row["title"] = f"{self.marker} historical {number}"
+        self.addCleanup(self.remove_fixture_rows, [row["title"] for row in expected])
+        output = io.StringIO()
+        with (
+            patch.object(cli, "historical_articles", return_value=iter(expected)),
+            contextlib.redirect_stdout(output),
+        ):
+            result = cli.main([
+                "historical", "--count", "3", "--start-date", "2026-10-01",
+                "--until", "2026-10-02T00:00:00Z", "--seed", "42",
+                "--author-id", "7", "--batch-size", "2",
+            ])
+        self.assertEqual(result, 0)
+        self.assertIn("Inserted historical articles: 3", output.getvalue())
+        with psycopg.connect(**self.settings, row_factory=dict_row) as connection:
+            rows = connection.execute(
+                "SELECT * FROM public.articles WHERE title = ANY(%s) ORDER BY title",
+                ([row["title"] for row in expected],),
+            ).fetchall()
+        self.assertEqual(len(rows), 3)
+        for stored, generated in zip(rows, expected, strict=True):
+            for field, value in generated.items():
+                self.assertEqual(stored[field], value)
+
+    def test_historical_later_batch_failure_rolls_back_all_batches(self):
+        """Leave no earlier batch committed when the third generated row fails."""
+        rows = list(cli.historical_articles(
+            3, cli.start_date("2026-10-01"), cli.utc_timestamp("2026-10-02T00:00:00Z"), 42, 7,
+        ))
+        for number, row in enumerate(rows):
+            row["title"] = f"{self.marker} failed historical {number}"
+        rows[-1]["author_id"] = 0
+        self.addCleanup(self.remove_fixture_rows, [row["title"] for row in rows])
+        output = io.StringIO()
+        with (
+            patch.object(cli, "historical_articles", return_value=iter(rows)),
+            self.assertLogs(level="ERROR"),
+            contextlib.redirect_stdout(output),
+        ):
+            result = cli.main([
+                "historical", "--count", "3", "--start-date", "2026-10-01",
+                "--until", "2026-10-02T00:00:00Z", "--seed", "42", "--batch-size", "2",
+            ])
+        self.assertEqual(result, 1)
+        self.assertNotIn("Inserted historical articles:", output.getvalue())
+        self.assertEqual(self.snapshot(), self.original_snapshot)
+
+    def test_batch_size_does_not_change_generated_values(self):
+        """Store identical values across batch sizes without retaining fixtures."""
+        for batch_size in (1, 2, 10):
+            with self.subTest(batch_size=batch_size):
+                rows = list(cli.historical_articles(
+                    3, cli.start_date("2026-10-01"), cli.utc_timestamp("2026-10-02T00:00:00Z"), 43, 7,
+                ))
+                for number, row in enumerate(rows):
+                    row["title"] = f"{self.marker} batch {batch_size} article {number}"
+                self.addCleanup(self.remove_fixture_rows, [row["title"] for row in rows])
+                with psycopg.connect(**self.settings, row_factory=dict_row) as connection:
+                    self.assertEqual(cli.insert_in_batches(connection, iter(rows), batch_size), 3)
+                    stored = connection.execute(
+                        "SELECT * FROM public.articles WHERE title = ANY(%s) ORDER BY title",
+                        ([row["title"] for row in rows],),
+                    ).fetchall()
+                    self.assertEqual(len(stored), 3)
+                    for actual, expected in zip(stored, rows, strict=True):
+                        for field, value in expected.items():
+                            self.assertEqual(actual[field], value)
+                    connection.rollback()
+        self.assertEqual(self.snapshot(), self.original_snapshot)
+
 
 if __name__ == "__main__":
     unittest.main()

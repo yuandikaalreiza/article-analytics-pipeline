@@ -2,14 +2,18 @@
 
 ## Current state
 
-- **Milestone:** 2 - Basic Python inserts.
-- **Checkpoint:** Milestone 2 reviewed and complete; all 21 maintained tests passed.
-- **Next step:** Plan milestone 3's historical data generator before implementing it.
-- **Database implementation:** PostgreSQL is healthy with 13 existing articles.
-  All existing values were preserved and integration fixtures were removed.
+- **Milestone:** 3 - Historical data generation, starting in October 2026.
+- **Checkpoint:** October generation and ingestion reviewed and complete.
+  Generation, preview, and transactional loading are implemented; the latest
+  suites passed 21 unit and 9 integration tests.
+- **Next step:** Plan ongoing operation simulation, starting with one-time
+  current article inserts, then updates and deletion operations in separate steps.
+- **Database implementation:** 2,513 articles: 2,500 new October articles and all
+  13 original articles unchanged. Fixtures were cleaned up; the actual load remains.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
-for completed database work, and [the Python insertion guide](02-python-inserts.md)
+for completed database work, [the Python insertion guide](02-python-inserts.md)
+for milestone 2, and [the October generation plan](03-historical-generation.md)
 for the active milestone's design and acceptance checks.
 
 ## Checklist
@@ -30,6 +34,12 @@ for the active milestone's design and acceptance checks.
 - [x] Milestone 2 Step 4: implement and verify small article insertions.
 - [x] Milestone 2 Step 5: verify argument, configuration, and transaction behavior.
 - [x] Review milestone 2 before planning historical generation.
+- [x] Milestone 3 Step 1: revise the plan to start in October 2026.
+- [x] Review the revised October generation plan; learner requested direct ingestion.
+- [x] Milestone 3 Step 2: implement reproducible generation and preview.
+- [x] Milestone 3 Step 3: implement transactional loading and verify with fixtures.
+- [x] Milestone 3 Step 4: load and inspect the 2,500-row October dataset.
+- [x] Review the completed October dataset.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -834,6 +844,123 @@ Milestone 2 is reviewed and complete. The next learning step is to document
 milestone 3's historical generation design: date range, reproducible seeds,
 realistic article text, configurable counts, batching, and transaction behavior.
 Implementation will follow review of that plan.
+
+## 2026-10-25 - Milestone 3 Step 1: October scope revision
+
+### Purpose and changes
+
+The learner requested starting with October 2026 instead of generating from
+2016. Created `03-historical-generation.md` and updated the roadmap to reflect
+that scope. Milestone 2 was saved in `32d9534` with the Conventional Commit
+`test: verify article CLI configuration and PostgreSQL transactions`.
+
+The first dataset is planned as 2,500 new articles from October 1 to a fixed
+cutoff covering the elapsed part of October 25. The cutoff cannot exceed the
+run's start time. Daily counts may vary; 100 per calendar date is an average.
+The expected total is the freshly checked baseline plus 2,500, or 2,513 if the
+previously verified 13-row baseline is unchanged.
+
+### Verification and learning notes
+
+- Inspected the current script, schema, dependencies, roadmap, and checkpoint.
+  The existing settings, insertion helper, and transaction ownership can be
+  reused; no dependency or schema change is planned for this first dataset.
+- Checked local Markdown links and documentation whitespace/content. This step
+  changes documentation only; no runtime tests or database operations were run.
+- Retained dated log entries and the earlier SQL exercises containing 2016
+  timestamps as history. The active roadmap now starts in October 2026.
+- A date range and a record count are separate inputs. A seed reproduces
+  generated values for fixed inputs; it does not make repeated loads idempotent.
+- The root `README.md` and `.gitattributes` deletions remain untouched.
+
+### Next action and checkpoint
+
+Review the revised plan. Step 2 will implement seeded generation and a preview
+without database access. The actual 2,500-row insertion remains Step 4 after
+the loader and its transaction behavior are verified. These documentation
+changes remain uncommitted for review.
+
+## 2026-10-25 - October generation, verification, and ingestion
+
+### Authorization and changes
+
+The learner requested starting ingestion directly, authorizing generation,
+loader implementation, and the first dataset in one turn. Extended the existing
+CLI with `historical`, explicit count/start/cutoff, seed, author, batch size, and
+a database-free preview. Reused environment configuration and the insertion
+helper; no schema, dependency, service, or volume changes were needed.
+
+Added six unit checks for seeded values, timestamp boundaries, timezone parsing,
+argument validation, preview isolation, and commit-failure output. Added three
+integration checks for committed historical batches, failure in a later batch,
+and value consistency across batch sizes with explicit rollback.
+
+### Verification evidence
+
+- PostgreSQL was running and healthy. Captured original fingerprints and a
+  13-row baseline before tests. All tests restored the original dataset.
+- Unit suite: 21 tests passed in 0.103 seconds.
+- Integration suite: 9 tests passed in 6.506 seconds, zero skips. Database access
+  required execution outside the agent sandbox.
+- A full 2,500-record preview succeeded, showing three samples and 25 publication
+  dates without database access.
+- Loaded once using seed `20261001`, author `7`, batch size `500`, start
+  `2026-10-01T00:00:00Z`, and exclusive cutoff `2026-10-25T02:26:52Z`.
+  Five batches committed in one transaction; reported load time was 2.516 seconds.
+- Independent post-load inspection found exactly 2,500 new rows and 2,513 total.
+  Every original row fingerprint was unchanged. Regeneration matched all seven
+  generated fields in all 2,500 new rows; all are active with coherent timestamps.
+- Publication times range from `2026-10-01T00:46:48.600532+00:00` to
+  `2026-10-25T01:49:36.006776+00:00`. October 25 has five rows because its
+  selected interval covers only the first 2 hours and 26 minutes.
+- Table plus index allocation grew from 65,536 bytes just before loading to
+  1,990,656 bytes afterward, about 1.90 MiB. These are relation sizes, not the
+  entire volume. Detailed daily counts and measurements are in the guide.
+- Executed source: base commit `32d9534` plus uncommitted changes; script SHA-256
+  `c1b9fedd5c977d927590c50675c93ed4b2db116b1b255db74158ba7b6231c341`.
+
+### Lessons and checkpoint
+
+Batches bound application memory; a single outer transaction controls atomicity.
+The initial writer still uses one parameterized INSERT per row. Seeds reproduce
+values but rerunning the load appends rows. Preview does not insert anything.
+No automatically repeated load, reset, identity restart, or volume deletion ran.
+
+Review the retained October articles. This work remains uncommitted; the root
+`README.md` and `.gitattributes` deletions remain untouched. Choose the next step
+after review; ongoing simulation and pipeline integrations remain deferred.
+
+## 2026-10-25 - October milestone review and commit
+
+### Purpose and review results
+
+The learner authorized the proposed dataset review and Conventional Commit.
+Reviewed the pending generator and test changes and performed a new read-only
+inspection against the retained database.
+
+- Confirmed 2,513 total rows: 2,500 historical articles and the 13 original rows.
+- Compared every original row fingerprint and regenerated all seven fields of
+  every historical article; all matched. Checked timestamp ordering, range
+  bounds, null deletion, and coverage across 25 UTC publication dates.
+- Complete dataset fingerprint:
+  `2513:271e9314d55fcf85f605a4622802895e`.
+- The script's SHA-256 still matched the version used during ingestion and the
+  passing 21-unit/9-integration-test run. No application fixes or repeat test run
+  were needed; this checkpoint used read-only database verification.
+- Checked documentation links and whitespace, then inspected the staged diff.
+  The commit includes only the generator, its two test suites, and three related
+  documentation files. The existing root file deletions are excluded.
+
+### Learning note and next action
+
+Git stores the generator, tests, and recorded evidence. The 2,513 database rows
+remain in the local Docker volume; a Git checkout alone does not restore them.
+No additional rows, updates, deletions, or simulation loop ran during review.
+
+Milestone 3 is complete. Plan the next milestone for ongoing operations, starting
+with one-time current inserts, then updates, soft deletion, hard deletion, and
+finally configurable continuous execution. Keep each implementation separately
+observable and pause for the learner's review.
 
 ## How to maintain this log
 

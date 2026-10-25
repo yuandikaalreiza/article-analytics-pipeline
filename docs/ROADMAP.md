@@ -7,6 +7,7 @@ verify its result, and review it before continuing.
 
 - Read [the PostgreSQL guide](01-postgresql.md) for database setup and SQL exercises.
 - For milestone 2, read [the Python insertion guide](02-python-inserts.md).
+- For milestone 3, read [the October generation plan](03-historical-generation.md).
 - Read [the progress log](PROGRESS.md) for completed work and the next action.
 - Documentation is in English. Examples will use PowerShell on the local machine
   and the PostgreSQL container's included `psql` client.
@@ -17,7 +18,7 @@ verify its result, and review it before continuing.
 | --- | --- | --- | --- |
 | 1. PostgreSQL database and table | Run PostgreSQL locally, understand the article schema, and practice SQL operations. | A healthy database, verified schema, successful operation checks, and persistent data. | Reviewed and committed |
 | 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Reviewed and complete; 21 tests passed |
-| 3. Historical data generation | Generate realistic articles from 2016 onward using seeds and batches. | Configurable counts, coherent timestamps, and measured batch performance. | Deferred |
+| 3. Historical data generation | Start with 2,500 synthetic articles from October 1, 2026, through a fixed October cutoff; use seeds and bounded batches. | Verified counts, coherent timestamps, reproducibility, and observed load time. | Reviewed and complete: 2,500 added, 2,513 total |
 | 4. Ongoing data simulation | Perform inserts, updates, soft deletes, and hard deletes from Python. | Verified operations, configurable counts and intervals, and useful failure logs. | Deferred |
 | 5. Pipeline integrations | Introduce Airbyte, ClickHouse, then Airflow as separate learning milestones. | Define acceptance criteria when each integration becomes active. | Deferred |
 
