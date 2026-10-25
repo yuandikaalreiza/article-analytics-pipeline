@@ -1,0 +1,10 @@
+# Official chart 2.4.0 references unpublished version tags for these two images.
+# The utils image is only used by the chart's optional Helm connection test.
+testWebapp:
+  image:
+    tag: latest
+
+# Published official Linux AMD64 image; regular connector profiling is optional.
+workloadLauncher:
+  connectorProfiler:
+    image: airbyte/async-profiler@sha256:bb75a4574f2235572a4f9d1079937713ea435e1c943f32f9f75e56df51feef99

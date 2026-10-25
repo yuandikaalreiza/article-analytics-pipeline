@@ -10,6 +10,7 @@ verify its result, and review it before continuing.
 - For milestone 3, read [the October generation plan](03-historical-generation.md).
 - For milestone 4, read [the ongoing simulation guide](04-ongoing-simulation.md).
 - For ClickHouse setup, read [the Docker installation guide](05-clickhouse.md).
+- For Airbyte setup, read [the local installation guide](06-airbyte.md).
 - Read [the progress log](PROGRESS.md) for completed work and the next action.
 - Documentation is in English. Examples will use PowerShell on the local machine
   and the PostgreSQL container's included `psql` client.
@@ -22,7 +23,7 @@ verify its result, and review it before continuing.
 | 2. Basic Python inserts | Connect a small Python CLI to PostgreSQL and insert a few articles. | Reproducible manual execution and verified inserted rows. | Reviewed and complete; 21 tests passed |
 | 3. Historical data generation | Start with 2,500 synthetic articles from October 1, 2026, through a fixed October cutoff; use seeds and bounded batches. | Verified counts, coherent timestamps, reproducibility, and observed load time. | Reviewed and complete: 2,500 added, 2,513 total |
 | 4. Ongoing data simulation | Perform inserts, updates, soft deletes, and hard deletes from Python. | Verified operations, configurable counts and intervals, and useful failure logs. | Current inserts verified; further simulation deferred by learner |
-| 5. Pipeline integrations | Install ClickHouse first, then connect the pipeline with Airbyte; introduce Airflow later. | ClickHouse accepts SQL locally; define integration checks when the connection work starts. | ClickHouse installed and SQL verified; initial transfer is next |
+| 5. Pipeline integrations | Install ClickHouse first, then connect the pipeline with Airbyte; introduce Airflow later. | ClickHouse accepts SQL locally; define integration checks when the connection work starts. | ClickHouse committed; Airbyte installed and healthy; connector setup next |
 
 ## ClickHouse installation: complete
 
@@ -45,9 +46,11 @@ The source already has sufficient data; further Python simulation is deferred.
 
 ClickHouse is running and healthy. Authenticated HTTP SQL confirmed version
 `26.10.2.103`, database `article_analytics`, and user `clickhouse_dev`.
-The database has no application tables yet. Next, set up Airbyte for an initial
-PostgreSQL-to-ClickHouse transfer; decide destination table handling during that
-step. Further simulation, CDC, and Airflow remain deferred.
+The database has no application tables yet. Airbyte 2.4.0 is now installed with
+`abctl` and its UI/API are healthy at `http://localhost:8000`. Next configure its
+PostgreSQL source and ClickHouse destination for one manual initial transfer;
+decide destination table handling there. Further simulation, CDC, and Airflow
+remain deferred.
 
 Later milestones are a direction, not an implementation specification. Design
 each one after the preceding milestone has been reviewed. All components must
@@ -72,7 +75,7 @@ The repository's [AGENTS.md](../AGENTS.md) defines the learning workflow,
 verification, documentation, and commit conventions for agents. Keep those
 instructions there; use this roadmap for milestone boundaries and sequencing.
 
-The current runtime is one PostgreSQL container and one ClickHouse container,
-each with its own named volume. Python runs on the host through uv. Add the
-next service when its integration step starts; no installable Python package,
-replication settings, or orchestration is needed for the installation checkpoint.
+PostgreSQL and ClickHouse run in Compose with separate named volumes. Airbyte
+runs in a Docker-backed cluster managed by `abctl`. Python runs on the host
+through uv. No installable Python package, CDC settings, or Airflow is needed
+for the current installation checkpoint.

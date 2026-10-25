@@ -3,10 +3,10 @@
 ## Current state
 
 - **Milestone:** 5 - Pipeline integrations.
-- **Checkpoint:** ClickHouse installation reviewed and verified; saving the
-  configuration and documentation before starting minimal Airbyte setup.
-- **Next step:** Set up Airbyte for the initial PostgreSQL-to-ClickHouse transfer.
-  Further simulation, CDC, and Airflow remain deferred.
+- **Checkpoint:** ClickHouse saved in `ae10852`. Airbyte 2.4.0 is installed
+  through official `abctl` v0.30.4; UI and API health checks passed.
+- **Next step:** Configure PostgreSQL as an Airbyte source and ClickHouse as a
+  destination for one manual initial transfer. CDC and Airflow remain deferred.
 - **Database implementation:** PostgreSQL remains healthy with all 2,518 articles
   unchanged. ClickHouse has the empty `article_analytics` database.
 
@@ -15,7 +15,8 @@ for completed database work, [the Python insertion guide](02-python-inserts.md)
 for milestone 2, [the October generation guide](03-historical-generation.md)
 for milestone 3, and [the ongoing simulation guide](04-ongoing-simulation.md)
 for the deferred simulation work. The [ClickHouse guide](05-clickhouse.md)
-records installation settings and connection commands.
+records installation settings and connection commands. The
+[Airbyte guide](06-airbyte.md) explains the separate local installer.
 
 ## Checklist
 
@@ -48,6 +49,9 @@ records installation settings and connection commands.
 - [ ] Milestone 4 Step 4: implement and verify hard deletion.
 - [ ] Milestone 4 Step 5: introduce configurable repeated simulation.
 - [x] Install ClickHouse through Docker Compose and verify authenticated SQL.
+- [x] Commit ClickHouse setup and pending tracking documentation.
+- [x] Download and checksum-verify the official Windows abctl executable.
+- [x] Install minimal Airbyte and verify its local UI and application readiness.
 - [ ] Set up the initial PostgreSQL-to-ClickHouse transfer with Airbyte.
 
 ## 2026-10-24 - Step 1: create tracking documentation
@@ -1088,6 +1092,70 @@ Docker. No `abctl` was found on PATH. Docker exposes 12 CPUs and approximately
 8 GB of memory shared with other running services; use low-resource mode for
 this local assessment. This is installation preparation, not a completed
 Airbyte runtime check.
+
+## 2026-10-25 - Minimal Airbyte installation complete
+
+### Commit and installation
+
+- Saved the reviewed ClickHouse configuration and pending documentation as
+  `ae10852` - `feat: add local ClickHouse service`. The local `.env` and the
+  pre-existing root file deletions were excluded.
+- Downloaded official Windows AMD64 `abctl` v0.30.4 into the ignored cache and
+  matched its published SHA-256 checksum. No system PATH or Python dependencies
+  changed. Airbyte is managed by `abctl` separately from Compose.
+- Used low-resource mode, localhost ingress, HTTP cookies, and no automatic
+  browser launch. Telemetry was disabled for installation with `DO_NOT_TRACK`.
+
+### Installation issue and resolution
+
+The default official chart 2.4.0 references unpublished utils/profiler 2.4.0
+tags. Confirmed missing images with the registry and inspected the official
+chart and installer sources. An older chart also had missing references, so
+kept 2.4.0 and added only `airbyte/values.yaml`: use official `utils:latest` for
+the Helm test image and a published official Linux AMD64 profiler image pinned
+by digest. No core Airbyte component version was changed.
+
+Stopped the first installer process and reused its cluster and cached images.
+The corrected retry completed successfully. Removed only the obsolete temporary
+image archive created by the stopped attempt; persistent storage was retained.
+
+### Runtime verification
+
+- Installer exited 0. `abctl local status` reports Airbyte chart/application
+  2.4.0 deployed and ingress chart 4.15.1 deployed.
+- Eight long-running Airbyte pods are ready, bootloader completed, both volume
+  claims are bound, and the ingress controller is ready.
+- `http://localhost:8000` returned HTTP 200 with Airbyte HTML.
+  `/api/v1/health` returned HTTP 200 with `available=true`.
+- Saved generated login email/password privately to ignored
+  `.cache/airbyte-login.json`. No credential values were printed or committed.
+- PostgreSQL and ClickHouse remain running and healthy. Read-only verification
+  matched source fingerprint `2518:e3789e5c005e4e354a06dcbb30e31f91`; ClickHouse
+  still has zero application tables in `article_analytics`.
+- The Airbyte Docker port mapping binds port 8000 on all interfaces; ingress
+  routes the configured localhost hostname. Existing database bindings remain
+  localhost only.
+- Documentation links and whitespace checks passed. Runtime deployment checks
+  were used; Python tests were not rerun because Python code did not change.
+
+### Next action
+
+Review the minimal local installation. Next configure the PostgreSQL source and
+ClickHouse destination, verify connector network access, then run one manual
+initial transfer. No connectors, connection, sync, CDC, or Airflow were created
+here. The Airbyte values file and documentation remain uncommitted for review.
+
+## 2026-10-25 - Commit Airbyte installation checkpoint
+
+The learner approved committing the Airbyte setup. Reviewed the values file,
+installation guide, roadmap, and progress entries; checked local documentation
+links and staged whitespace. Local login details remain ignored, and the
+pre-existing root file deletions are excluded from the commit.
+
+No runtime configuration or data changed during this checkpoint. The prior
+successful installer, UI, and API health checks remain the recorded evidence;
+they were not rerun for this Git-only step. Connector configuration and the
+first transfer remain the next task.
 
 ## How to maintain this log
 
