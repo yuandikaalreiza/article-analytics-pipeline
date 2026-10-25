@@ -400,12 +400,13 @@ def simulate_operation(
     Args:
         connection: Open database connection.
         rng: Random generator used for synthetic article text.
-        operation: insert, update, or soft_delete.
+        operation: insert, update, soft_delete, or hard_delete.
         author_id: Author for new articles.
         number: Sequence number for a new article.
 
     Returns:
-        Affected article ID and its update timestamp.
+        Affected article ID and its operation timestamp. For hard deletes this
+        is the database execution time, not a stored updated_at value.
 
     Raises:
         RuntimeError: If no active article is available.
@@ -425,7 +426,7 @@ def simulate_operation(
         article_id = insert_articles(connection, [article])[0]
         return article_id, article["updated_at"]
 
-    if operation not in ("update", "soft_delete"):
+    if operation not in ("update", "soft_delete", "hard_delete"):
         raise ValueError("Unknown simulation operation")
     active_count = connection.execute(
         "SELECT count(*) FROM public.articles WHERE deleted_at IS NULL"
@@ -445,11 +446,16 @@ def simulate_operation(
             "updated_at = greatest(clock_timestamp(), updated_at + interval '1 microsecond') "
             "WHERE id = %s RETURNING id, updated_at", (target[0],),
         ).fetchone()
-    else:
+    elif operation == "soft_delete":
         deleted_at = max(datetime.now(timezone.utc), target[1] + timedelta(microseconds=1))
         result = connection.execute(
             "UPDATE public.articles SET deleted_at = %s, updated_at = %s "
             "WHERE id = %s RETURNING id, updated_at", (deleted_at, deleted_at, target[0]),
+        ).fetchone()
+    else:
+        result = connection.execute(
+            "DELETE FROM public.articles WHERE id = %s RETURNING id, clock_timestamp()",
+            (target[0],),
         ).fetchone()
     return result
 
@@ -479,7 +485,10 @@ def simulate(settings: dict[str, str | int], args: argparse.Namespace) -> int:
         psycopg.Error: If a database operation fails; prior commits remain.
     """
     rng = random.Random(args.seed)
-    remaining = {"insert": args.inserts, "update": args.updates, "soft_delete": args.soft_deletes}
+    remaining = {
+        "insert": args.inserts, "update": args.updates,
+        "soft_delete": args.soft_deletes, "hard_delete": args.hard_deletes,
+    }
     completed = dict.fromkeys(remaining, 0)
     total = sum(remaining.values())
     seconds = args.duration * 60
@@ -489,8 +498,8 @@ def simulate(settings: dict[str, str | int], args: argparse.Namespace) -> int:
             active = connection.execute(
                 "SELECT count(*) FROM public.articles WHERE deleted_at IS NULL"
             ).fetchone()[0]
-            if remaining["soft_delete"] > active + remaining["insert"]:
-                raise RuntimeError("Not enough active articles for the requested soft deletes.")
+            if remaining["soft_delete"] + remaining["hard_delete"] > active + remaining["insert"]:
+                raise RuntimeError("Not enough active articles for the requested deletes.")
             if remaining["update"] and not active + remaining["insert"]:
                 raise RuntimeError("Updates require an active article or a requested insert.")
             print(f"Simulating for {args.duration:g} minutes: {remaining}", flush=True)
@@ -500,7 +509,7 @@ def simulate(settings: dict[str, str | int], args: argparse.Namespace) -> int:
                 eligible = [op for op, count in remaining.items() if count and (op == "insert" or active)]
                 # Keep one active article while edits still need a target.
                 if active == 1 and remaining["update"] and not remaining["insert"]:
-                    eligible = [op for op in eligible if op != "soft_delete"]
+                    eligible = [op for op in eligible if op not in ("soft_delete", "hard_delete")]
                 operation = rng.choices(eligible, weights=[remaining[op] for op in eligible], k=1)[0]
                 with connection.transaction():
                     connection.execute("SET LOCAL lock_timeout = '5s'")
@@ -510,7 +519,7 @@ def simulate(settings: dict[str, str | int], args: argparse.Namespace) -> int:
                     )
                 completed[operation] += 1
                 remaining[operation] -= 1
-                active += (operation == "insert") - (operation == "soft_delete")
+                active += (operation == "insert") - (operation in ("soft_delete", "hard_delete"))
                 print(f"{timestamp.isoformat()} {operation} id={article_id}", flush=True)
             wait_until(started + seconds)
         print("Simulation completed.", flush=True)
@@ -559,10 +568,14 @@ def main(argv: list[str] | None = None) -> int:
     simulation_command.add_argument("--inserts", type=nonnegative_int, default=60)
     simulation_command.add_argument("--updates", type=nonnegative_int, default=30)
     simulation_command.add_argument("--soft-deletes", type=nonnegative_int, default=10)
+    simulation_command.add_argument("--hard-deletes", type=nonnegative_int, default=0,
+                                    help="Permanently remove active articles (default: 0).")
     simulation_command.add_argument("--author-id", type=positive_int, default=1)
     simulation_command.add_argument("--seed", type=int)
     args = parser.parse_args(argv)
-    if args.command == "simulate" and not (args.inserts + args.updates + args.soft_deletes):
+    if args.command == "simulate" and not (
+        args.inserts + args.updates + args.soft_deletes + args.hard_deletes
+    ):
         parser.error("simulate requires at least one operation")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 

@@ -12,7 +12,7 @@ class SimulationIntegrationTests(unittest.TestCase):
     """Check real lifecycle constraints without committing fixture changes."""
 
     def test_lifecycle_operations_preserve_immutable_fields_and_rollback(self):
-        """Exercise inserts, random edits, and soft deletes with actual SQL."""
+        """Exercise inserts, edits, and both deletion types with actual SQL."""
         with psycopg.connect(**cli.load_settings(), connect_timeout=5, autocommit=True) as connection:
             before = connection.execute(
                 "SELECT id, md5(row_to_json(a)::text) FROM public.articles a ORDER BY id"
@@ -41,6 +41,11 @@ class SimulationIntegrationTests(unittest.TestCase):
                     "SELECT deleted_at=updated_at, published_at<=deleted_at "
                     "FROM public.articles WHERE id=%s", (deleted_id,),
                 ).fetchone(), (True, True))
+                removed_id, removed_at = cli.simulate_operation(connection, rng, "hard_delete", 7, 1)
+                self.assertIsNotNone(removed_at.tzinfo)
+                self.assertIsNone(connection.execute(
+                    "SELECT id FROM public.articles WHERE id=%s", (removed_id,),
+                ).fetchone())
                 with connection.transaction(force_rollback=True):
                     connection.execute("UPDATE public.articles SET deleted_at=updated_at")
                     with self.assertRaisesRegex(RuntimeError, "No active article"):

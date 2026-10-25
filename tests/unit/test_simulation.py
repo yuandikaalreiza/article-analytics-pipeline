@@ -31,7 +31,8 @@ class SimulationTests(unittest.TestCase):
         connection = MagicMock()
         connection.execute.return_value.fetchone.return_value = (active,)
         args = argparse.Namespace(
-            duration=1, inserts=2, updates=2, soft_deletes=1, author_id=7, seed=42,
+            duration=1, inserts=2, updates=2, soft_deletes=1, hard_deletes=0,
+            author_id=7, seed=42,
         )
         for key, value in counts.items():
             setattr(args, key, value)
@@ -88,6 +89,27 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(result[2], [])
         self.assertEqual(result[3], 0)
 
+    def test_hard_delete_only_run(self):
+        """Allow a run containing only permanent deletions."""
+        result = self.run_simulation(inserts=0, updates=0, soft_deletes=0, hard_deletes=1)
+        self.assertEqual(result[0], 0)
+        self.assertEqual([op for op, _ in result[2]], ["hard_delete"])
+
+    def test_hard_delete_keeps_last_active_row_until_edits_finish(self):
+        """Insert before edits on an empty source, then remove the last row."""
+        result = self.run_simulation(active=0, inserts=1, updates=3,
+                                     soft_deletes=0, hard_deletes=1)
+        self.assertEqual(result[0], 0)
+        self.assertEqual(result[2][0][0], "insert")
+        self.assertEqual(result[2][-1][0], "hard_delete")
+
+    def test_soft_and_hard_deletes_share_the_available_row_budget(self):
+        """Reject combined deletions exceeding available active rows."""
+        result = self.run_simulation(active=1, inserts=0, updates=0,
+                                     soft_deletes=1, hard_deletes=1)
+        self.assertIsInstance(result[4], RuntimeError)
+        self.assertEqual(result[2], [])
+
     def test_failure_reports_only_committed_operations(self):
         """Stop on the second failed operation and report the first completion."""
         result = self.run_simulation(failure=psycopg.DatabaseError("test failure"))
@@ -109,6 +131,7 @@ class SimulationTests(unittest.TestCase):
             ["--duration", value] for value in ("0", "-1", "nan", "inf", "text")
         ] + [
             ["--duration", "60", "--updates", "-1"],
+            ["--duration", "60", "--hard-deletes", "-1"],
             ["--duration", "60", "--inserts", "0", "--updates", "0", "--soft-deletes", "0"],
         ]
         with patch.object(cli, "load_settings") as settings:

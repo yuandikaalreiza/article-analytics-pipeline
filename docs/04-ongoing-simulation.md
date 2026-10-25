@@ -3,7 +3,7 @@
 ## Current checkpoint
 
 **Duration-based simulation implemented.** The existing CLI now supports live
-inserts, edits, and soft deletions over a requested number of minutes. The
+inserts, edits, soft deletions, and optional hard deletions over a requested number of minutes. The
 earlier exercises below are retained as history; see the progress log for the
 latest database counts.
 
@@ -102,12 +102,33 @@ uv run --locked python scripts/generate_articles.py simulate --duration 60
 ```
 
 `--duration` is in **minutes**: 60 means one hour. By default, the command
-performs 60 inserts, 30 updates, and 10 soft deletes across that hour. These
+performs 60 inserts, 30 updates, 10 soft deletes, and zero hard deletes across that hour. These
 are totals for the entire run, not per-minute counts. Override them when needed:
 
 ```powershell
 uv run --locked python scripts/generate_articles.py simulate --duration 60 --inserts 300 --updates 1000 --soft-deletes 100 --seed 42
 ```
+
+Add `--hard-deletes N` to permanently remove N randomly selected active articles.
+Soft and hard deletes share the available active-row budget. Deleted rows stop
+being eligible for later operations; the last active row is retained until any
+remaining edits are finished. Each hard delete logs the removed ID and database
+execution timestamp after commit, without changing its former `updated_at`.
+
+To request only one hard delete over 1.2 seconds (this changes real source data):
+
+```powershell
+uv run --locked python scripts/generate_articles.py simulate --duration 0.02 --inserts 0 --updates 0 --soft-deletes 0 --hard-deletes 1 --seed 42
+```
+
+Repeating the command deletes another article. The seed does not make it
+idempotent. In this repository's verification run it removed ID 1398; future
+runs can select another ID as the active dataset changes. Windows execution
+used the uv verification environment documented in the progress log.
+
+For a CDC deletion check, confirm the chosen ID exists in both systems before
+deleting it, then inspect it after a successful Airbyte sync. Source removal is
+separate from destination deletion handling; the latter must be verified.
 
 - Operations occur in random order at jittered times distributed across the
   duration. The process remains running until the duration ends. A slow database

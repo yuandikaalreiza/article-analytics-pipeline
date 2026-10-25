@@ -5,12 +5,11 @@
 - **Milestone:** 5 - Pipeline integrations.
 - **Checkpoint:** Duration-based simulation is implemented and the learner has
   run it. Airbyte CDC successfully replicated changes to ClickHouse 26.7.37.6.
-- **Next step:** After the learner's simulator stops and a following sync
-  completes, reconcile source/destination rows and latest values.
-- **Database implementation:** Last read-only observation: PostgreSQL had 4,094
-  rows (421 soft-deleted); ClickHouse `FINAL` had 3,849 (321 soft-deleted).
-  Source updates continued after the latest successful sync. These are observed
-  checkpoints, not live counts or evidence of final reconciliation.
+- **Next step:** After a successful Airbyte sync, verify destination deletion
+  handling for article ID 1398, then complete source/destination reconciliation.
+- **Database implementation:** PostgreSQL had 4,227 rows before the authorized
+  single hard delete and 4,226 afterward. ID 1398 existed in ClickHouse before
+  deletion and remained visible immediately afterward; CDC verification is pending.
 
 Read [the roadmap](ROADMAP.md) for the sequence, [the PostgreSQL guide](01-postgresql.md)
 for completed database work, [the Python insertion guide](02-python-inserts.md)
@@ -63,6 +62,8 @@ records installation settings and connection commands. The
 - [x] Verify simulation scheduling, invalid inputs, partial completion, and real SQL.
 - [x] Observe learner-run simulation data and successful Airbyte CDC jobs.
 - [ ] Reconcile the final dataset after generation stops and another sync completes.
+- [x] Add optional `--hard-deletes` and verify one committed source deletion.
+- [ ] Verify hard-deleted ID 1398 is removed from current destination results after sync.
 
 ## 2026-10-24 - Step 1: create tracking documentation
 
@@ -1305,6 +1306,37 @@ the source/destination difference still requires final reconciliation.
 Implementation and CDC replication are working. The learner's generation run
 and final catch-up verification are separate checkpoints. No service was stopped,
 no data was changed, and no new sync was triggered during this inspection.
+
+## 2026-10-25 - Optional hard deletes and one committed demonstration
+
+Added `simulate --hard-deletes` with default zero, keeping existing command
+behavior. Hard deletes select active articles using the same seeded selection
+as edits, issue `DELETE ... RETURNING`, and log ID/execution time after commit.
+Soft/hard deletes share the active-row budget and cannot consume the last
+available article before remaining edits complete.
+
+Validation: 30 unit tests passed (including hard-delete-only execution,
+empty-source ordering, combined deletion budgets, and invalid arguments).
+The PostgreSQL simulation integration test passed, now also verifying a real
+`DELETE` and complete rollback of the test transaction. Existing unrelated
+integration tests were not rerun for this extension.
+
+Executed the actual CLI entry point through uv with:
+`simulate --duration 0.02 --inserts 0 --updates 0 --soft-deletes 0 --hard-deletes 1 --seed 42`.
+Before execution, predicted the seeded target and verified its presence in
+ClickHouse. The run committed exactly one hard delete: ID 1398 at
+`2026-10-25T15:29:41.843193Z` (22:29:41 Jakarta), finishing in 1.201 seconds.
+
+Independent source snapshots confirmed 4,227 -> 4,226 rows, only ID 1398
+removed, no inserts, and identical stored-value fingerprints for every surviving
+row. ClickHouse `FINAL` still contained ID 1398 immediately afterward. No sync
+was triggered and no extra source mutation was made to advance CDC. Local
+machine-readable evidence is in ignored `.cache/hard-delete-verification.json`.
+
+Next: inspect ID 1398 after the next successful Airbyte sync, including
+`_ab_cdc_deleted_at` if a tombstone remains. This step verifies source deletion,
+not yet end-to-end deletion semantics. The learner subsequently requested a
+separate Conventional Commit for this extension and its verification notes.
 
 ## How to maintain this log
 
